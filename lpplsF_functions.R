@@ -2,7 +2,7 @@
 ## Implementation of the LPPLS model for analysing financial bubbles.
 ## By Martin Hoshi Vognsen
 ##
-## This implementation i based on the following articles:
+## This implementation is based on the following articles:
 ##
 ## 1) A stable and robust calibration scheme of the log-periodic power law model
 ## Filimonov, V., Sornette, D.
@@ -26,9 +26,6 @@ library(rlist) ## Sort list of fits
 ## Functions ====
 
 ## Calculate complete model based on input time ID and price vectors.
-## Also possible to access functions inside the factory.
-## Example:
-## Filimonov()$LPPLS(t = 1:1000, A = 4, B = -0.015, C1 = 0.0015, C2 = 0, tc = 1500, m = 0.5, omega = 9)
 
 ## Inputs:
 ## 1) time_ID, time index
@@ -109,8 +106,7 @@ library(rlist) ## Sort list of fits
 
 
 
-## Output:
-## 
+## Outputs:
 ## 1)
 ## mode = F1:
 ##    fit, list of fits with random initial values.
