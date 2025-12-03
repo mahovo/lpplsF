@@ -68,7 +68,7 @@ Inputs:
 12) mpl_plot, boolean for Modified Profile Likelihood plot with likelihood intervals.  
 13) cp, boolean for contour plot.  
          tc value is fixed to the estimate with the lowest objective function value.  
-14) sp, boolean for contour plot.  
+14) sp, boolean for surface plot.  
          tc value is fixed to the estimate with the lowest objective function value.  
 15) tp, boolean for vector trace plot selector.  
          Any combination of three plots are selected with a vector:  

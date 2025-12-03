@@ -16,7 +16,15 @@
 ## Setup ====
 
 library(ggplot2)
-library(tidyverse)
+#library(tidyverse)
+library(dplyr)
+library(forcats)
+library(lubridate)
+library(purrr)
+library(readr)
+library(stringr)
+library(tibble)
+library(tidyr)
 library(symengine) ## Solve symbolic equations
 library(plotly) ## Contour plot
 library(rlist) ## Sort list of fits
@@ -26,6 +34,9 @@ library(rlist) ## Sort list of fits
 ## Functions ====
 
 ## Calculate complete model based on input time ID and price vectors.
+## Also possible to access functions inside the factory.
+## Example:
+## lpplsF()$LPPLS(t = 1:1000, A = 4, B = -0.015, C1 = 0.0015, C2 = 0, tc = 1500, m = 0.5, omega = 9)
 
 ## Inputs:
 ## 1) time_ID, time index
@@ -77,7 +88,7 @@ library(rlist) ## Sort list of fits
 ## 12) mpl_plot, boolean for Modified Profile Likelihood plot with likelihood intervals.
 ## 13) cp, boolean for contour plot.
 ##          tc value is fixed to the estimate with the lowest objective function value.
-## 14) sp, boolean for contour plot.
+## 14) sp, boolean for surface plot.
 ##          tc value is fixed to the estimate with the lowest objective function value.
 ## 15) tp, boolean for vector trace plot selector.
 ##          Any combination of three plots are selected with a vector:
@@ -279,7 +290,7 @@ lpplsF <- function(time_ID, log_price, fh = 30, hold_out = 15, lower = c(0.1, 6,
   Xy <- symengine::Vector(xy1, xy2, xy3, xy4)
   
   beta <- symengine::solve(XX, Xy)
-
+  
   A <- DoubleVisitor(beta[1], args = c(
     xx11, xx12, xx13, xx14,
     xx21, xx22, xx23, xx24,
@@ -446,7 +457,7 @@ lpplsF <- function(time_ID, log_price, fh = 30, hold_out = 15, lower = c(0.1, 6,
   SSE3 <- function(tc, m, omega, log_p, t) {
     drop(sum(res(tc, m, omega, log_p, t)^2, na.rm = TRUE))
   }
-
+  
   ## mode F1 ====
   if(mode == "F1") {
     if(fb){print("mode: F1")}
@@ -619,16 +630,16 @@ lpplsF <- function(time_ID, log_price, fh = 30, hold_out = 15, lower = c(0.1, 6,
       
       ## Calculate linear koefficients
       beta_vals <- beta_calculator(log_p, t, tc_k, opt_tmp$par[[1]], opt_tmp$par[[2]])
-
+      
       #if(beta_vals[[2]] >= upper[3]) {warning(paste0("F2, iteration 1: B out of range (", 1, ").\n"))}
       if(beta_vals[[2]] >= upper[3]) {out_of_range_tracker$B[[length(out_of_range_tracker$B) + 1]] = list(tc_num = k, rand_iter_num = 1)}
-     
+      
       ## Calculate damping (D)
       ## m * abs(B) / (omega * sqrt(C1^2 + C2^2))
       damp <- opt_tmp$par[[1]] * abs(beta_vals[2]) / (opt_tmp$par[[2]] * sqrt(beta_vals[3]^2 + beta_vals[4]^2))
       #if(damp <= lower[4]) {warning(paste0("F2, iteration 1: D out of range (", 1, ").\n"))}
       if(damp <= lower[4]) {out_of_range_tracker$B[[length(out_of_range_tracker$D) + 1]] = list(tc_num = k, rand_iter_num = 1)}
-
+      
       ## Add list of fitted coefficients to list of fits
       fit2_tmp <- tibble(ID = 1, value = opt_tmp$value, tc = tc_k, m = opt_tmp$par[[1]], omega = opt_tmp$par[[2]], A = beta_vals[1], B = beta_vals[2], C1 = beta_vals[3], C2 = beta_vals[4], D = damp)
       
@@ -665,7 +676,7 @@ lpplsF <- function(time_ID, log_price, fh = 30, hold_out = 15, lower = c(0.1, 6,
           )
           if(tp[1] == 1 || tp[2] == 1 || tp[3] == 1) {opt2_counts[i] <- opt_tmp$counts["function"]} ## Use for trace plot
           
-
+          
           
           # if(opt_tmp$value < fit$value){
           #   fit <- opt_tmp
@@ -691,16 +702,16 @@ lpplsF <- function(time_ID, log_price, fh = 30, hold_out = 15, lower = c(0.1, 6,
       ## Sort list by value of objective function F2.
       ## Keep all fits for tc_k in a list.
       if(fb){print(paste0("Sorting list of all fits for tc_", k))}
-
-
+      
+      
       ## Filter out results where B > 0.
       ## Then sort by SSE value (smallest at top).
       fit2[[k]] <- fit2_tmp %>% arrange(value)
-      fit2_filtered[[k]] <- fit2_tmp %>% filter(B < upper[3]) %>% arrange(value)
+      fit2_filtered[[k]] <- fit2_tmp %>% dplyr::filter(B < upper[3]) %>% arrange(value)
       
       ## Keep best fit for each value of tc
       if(fb){print(paste0("Saving best fit for tc_", k))}
-
+      
       ## Skip tc values where no fits have B < 0
       if(nrow(fit2_filtered[[k]]) > 0) {
         fit2_best_for_each_tc_filtered[fit2_best_row, ] <- fit2_filtered[[k]][1, ]
@@ -709,10 +720,10 @@ lpplsF <- function(time_ID, log_price, fh = 30, hold_out = 15, lower = c(0.1, 6,
       
       fit2_best_for_each_tc[k, ] <- fit2[[k]][1, ]
     }
-
+    
     ## Sort list of best fits for each value of tc
     if(fb){print(paste0("Sorting list of best fits for each value of tc"))}
-
+    
     fit2_best_for_each_tc <- arrange(fit2_best_for_each_tc, value)
     fit2_best_for_each_tc_filtered <- arrange(fit2_best_for_each_tc_filtered, value)
     
@@ -726,7 +737,7 @@ lpplsF <- function(time_ID, log_price, fh = 30, hold_out = 15, lower = c(0.1, 6,
     
     ## Optimize wrt tc given estimated m and omega
     if(fb){print(paste0("Optimizing SSE3..."))}
-
+    
     ## Brent
     opt_tmp <- optim(par = tc_init,
                      fn = SSE3,
@@ -765,13 +776,13 @@ lpplsF <- function(time_ID, log_price, fh = 30, hold_out = 15, lower = c(0.1, 6,
     ## Calculate linear koefficients
     if(fb){print(paste0("Calculating linear koefficient..."))}
     beta_vals <- beta_calculator(log_p, t, opt_tmp$par[[1]], fit2_best$m, fit2_best$omega)
-
+    
     if(fb){print(paste0("Calculating damp..."))}
     damp <- fit2_best$m * abs(beta_vals[2]) / (fit2_best$omega * sqrt(beta_vals[3]^2 + beta_vals[4]^2))
-
+    
     ## Final fit
     if(fb){print(paste0("Saving list of final fit parameters..."))}
-
+    
     fit[[1]] <- list(tc = opt_tmp$par[[1]], m = fit2_best$m, omega = fit2_best$omega, A = beta_vals[1], B = beta_vals[2], C1 = beta_vals[3], C2 = beta_vals[4], D = damp, value = opt_tmp$value)
     
     if(nrow(fit2_best_for_each_tc_filtered) == 1 && sum(fit2_best_for_each_tc_filtered) == 0) {
@@ -910,7 +921,7 @@ lpplsF <- function(time_ID, log_price, fh = 30, hold_out = 15, lower = c(0.1, 6,
       X_hat <- X_MPL(Psi_hat, tc_hat, t)
       H_hat_tc <- H_MPL(Psi_hat_tc, tc, log_p, t)
       
-    
+      
       mpll <- log(
         sqrt(
           abs(
@@ -923,7 +934,7 @@ lpplsF <- function(time_ID, log_price, fh = 30, hold_out = 15, lower = c(0.1, 6,
             crossprod(X_hat, X_hat_tc)
           )
         )
-      #) - ((n + p + 2)/2) * log(s_tc) ## Fejl
+        #) - ((n + p + 2)/2) * log(s_tc) ## Fejl
       ) - ((n - p - 2)/2) * log(s_tc)
       
       -mpll
@@ -974,7 +985,7 @@ lpplsF <- function(time_ID, log_price, fh = 30, hold_out = 15, lower = c(0.1, 6,
       for(i in 1:fh) {
         ## Get fit for tc=N+i
         if(fb && i%%10 == 1) {print(paste0("Calculating LL for tc = ", n + i, "...", n + i + 9))}
-        par_hat_tc <- as.numeric(fit[[2]] %>% filter(tc == n + i))[3:9]
+        par_hat_tc <- as.numeric(fit[[2]] %>% dplyr::filter(tc == n + i))[3:9]
         R_MPL_tbl$LL[i] <- -LL_MPL_neg(tc = n + i, tc_hat = par_hat[1], Psi_hat_tc = par_hat_tc[2:7], Psi_hat = par_hat[2:7], log_p, t)
       }
       
@@ -1015,7 +1026,7 @@ lpplsF <- function(time_ID, log_price, fh = 30, hold_out = 15, lower = c(0.1, 6,
       t = t, 
       fh = fh, 
       fb = fb)
-
+    
     
     #   df_plot <- data.frame(tc = (n + 1):(n - hold_out + fh), log_mpl = li$LL)
     #   df_fit <- data.frame(tc_hat = mpl_fit_ARGARCH$fit[[1]][[1]])
@@ -1161,9 +1172,9 @@ lpplsF <- function(time_ID, log_price, fh = 30, hold_out = 15, lower = c(0.1, 6,
   if(tp[1] == 1 || tp[2] == 1 || tp[3] == 1) { ## boolean vector: c(1 on/off, 2, on/off, 3 on/off)
     if(mode == "F2" || mode == "MPL") {
       tc_val <- fit[[1]]$tc
-
+      
       ## Calculate trace 
-
+      
       set.seed(fit2_best$ID) ## Set same seed as was used for best fit.
       s <- seq_len(opt2_counts[[fit2_best$ID]])
       opt <- sapply(
@@ -1205,7 +1216,7 @@ lpplsF <- function(time_ID, log_price, fh = 30, hold_out = 15, lower = c(0.1, 6,
       tp_gen <- function(selector) { ## 1: (m, omega), 2: (B, m), 3: (B, omega)
         if(fb){print(paste0("Generating trace plot ", selector, "..."))}
         lattice_dim <- 100
-
+        
         ## Generate lattice
         if(selector == 1) {
           lattice <- as.matrix(expand.grid(m = seq(min(lower[1], min(opt[1,])), max(upper[1], max(opt[1,])), length.out = lattice_dim), omega = seq(min(lower[2], min(opt[2,])), max(upper[2], max(opt[2,])), length.out = lattice_dim)))
@@ -1218,7 +1229,7 @@ lpplsF <- function(time_ID, log_price, fh = 30, hold_out = 15, lower = c(0.1, 6,
           lattice <- as.matrix(expand.grid(m = seq(min(lower[1], min(opt[1,])), max(upper[1], max(opt[1,])), length.out = lattice_dim), B = seq(min(lower[3], min(opt[3,])), max(upper[3], max(opt[3,])), length.out = lattice_dim)))
           
           beta_tp <- beta_calculator(log_p, t, tc_val, opt[1, ][1], opt[2, ][1])
-
+          
           SSE_tp <- function(par, a, c1, c2, tc, omega, log_p, t) {SSE(par = list(A = a, B = par[2], C1 = c1, C2 = c2, tc = tc, m = par[1], omega = omega), t = t, log_p = log_p)}
           
           if(tp_id < 1 || tp_id > ncol(opt)) {
@@ -1226,13 +1237,13 @@ lpplsF <- function(time_ID, log_price, fh = 30, hold_out = 15, lower = c(0.1, 6,
             warning("tp_id for (B,m) trace plot is <1 or too high. Replaced with tp_id[1]=1\n")
           }
           lattice_vals <- apply(lattice, 1, SSE_tp,
-            a = beta_tp[1],
-            c1 = beta_tp[3],
-            c2 = beta_tp[4],
-            tc = tc_val,
-            omega = opt[2, ][tp_id],
-            log_p = log_p,
-            t = t)
+                                a = beta_tp[1],
+                                c1 = beta_tp[3],
+                                c2 = beta_tp[4],
+                                tc = tc_val,
+                                omega = opt[2, ][tp_id],
+                                log_p = log_p,
+                                t = t)
         } 
         if(selector == 3) {
           lattice <- as.matrix(expand.grid(omega = seq(min(lower[2], min(opt[2,])),max(upper[2], max(opt[2,])), length.out = lattice_dim), B = seq(min(lower[3], min(opt[3,])), max(upper[3], max(opt[3,])), length.out = lattice_dim)))
@@ -1260,7 +1271,7 @@ lpplsF <- function(time_ID, log_price, fh = 30, hold_out = 15, lower = c(0.1, 6,
         
         if(selector == 1) {
           opt_df <- data.frame(m = opt[1,], omega = opt[2,])
-
+          
           opt_df$step <- 1:nrow(opt_df)
           
           trace_plot <- ggplot(lattice, aes(m, omega)) + 
@@ -1350,7 +1361,7 @@ lpplsF <- function(time_ID, log_price, fh = 30, hold_out = 15, lower = c(0.1, 6,
       param = c("m", "omega", "A", "B", "C1", "C2", "D", "value"), 
       estimate = c(
         fit[[1]]$tc, fit[[1]]$tc, fit[[1]]$tc, fit[[1]]$tc, fit[[1]]$tc, fit[[1]]$tc, fit[[1]]$tc, fit[[1]]$tc)
-      ) %>% group_by(param, estimate)
+    ) %>% group_by(param, estimate)
     
     param_plot <- ggplot(plot_df_merged, aes(tc, estimate)) +
       geom_point(size = 0.5) +
@@ -1396,7 +1407,7 @@ lpplsF <- function(time_ID, log_price, fh = 30, hold_out = 15, lower = c(0.1, 6,
   num_estimates <- ((mode == "F2") + (mode == "MPL")) * fh * num_searches + (mode == "F1") * num_searches
   if(length(out_of_range_tracker$B) > 0) {warning(paste0(length(out_of_range_tracker$B), " of ", num_estimates, " estimates of B were out of range.\n", "See out_of_range_tracker output.\n"))}
   if(length(out_of_range_tracker$D) > 0) {warning(paste0(length(out_of_range_tracker$D), " of ", num_estimates, " estimates of B were out of range.\n", "See out_of_range_tracker output.\n"))}
-
+  
   ## Check filtering of best fit
   if(beta_vals[[2]] >= upper[3]) {warning(paste0("tc_hat (final fit): B out of range.\n"))}
   if(damp <= lower[4]) {warning(paste0("tc_hat (final fit): D out of range.\n"))}
@@ -1452,11 +1463,11 @@ LPPLS <- function(t, A, B, C1, C2, tc, m, omega, mode = 0, T1 = 500, T2 = 1990, 
     A + (
       tau^m / sqrt(1 + (tau / T1)^(2 * m) + (tau / T2)^(4 * m)) *
         (B + C1 * cos(
-              omega + log(tau) + (omega2 / (2 * m)) *
-                log(1 + (tau / T1)^(2 * m)) +
-                (omega3 / (4 * m)) *
-                log(1 + (tau / T2)^(4 * m)) +
-                C2)))
+          omega + log(tau) + (omega2 / (2 * m)) *
+            log(1 + (tau / T1)^(2 * m)) +
+            (omega3 / (4 * m)) *
+            log(1 + (tau / T2)^(4 * m)) +
+            C2)))
     
   } else {stop("LPPLS mode must be 0, 1, 2 or 3.")}
 }

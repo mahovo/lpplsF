@@ -1,0 +1,222 @@
+---
+title: "AI bubble"
+output: html_document
+date: "2025-12-01"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(quantmod)
+```
+
+
+## Download data
+```{r}
+# Download NVDA data from Yahoo Finance
+getSymbols("NVDA", src = "yahoo", auto.assign = TRUE)
+
+# Download with specific date range
+# getSymbols("NVDA", src = "yahoo", 
+#            from = "2020-01-01", 
+#            to = Sys.Date(),
+#            auto.assign = TRUE)
+
+# View the structure of the data
+head(NVDA)
+tail(NVDA)
+
+# Check dimensions
+dim(NVDA)
+
+# Get column names (Open, High, Low, Close, Volume, Adjusted)
+colnames(NVDA)
+
+# Extract just the adjusted close prices (accounts for splits/dividends)
+nvda_adj_close <- Ad(NVDA)
+```
+
+```{r}
+# Plot the adjusted close price
+chartSeries(NVDA, TA = NULL, log.scale = TRUE, theme = "white")
+addLines(h = NULL, v = NULL, col = "blue")
+```
+
+
+
+## Fit LPPLS to log-prices
+```{r}
+source("~/R work/pension-returns/R/lppls_functions.R")
+```
+
+```{r}
+num_searches = 1
+hold_out <- 500
+fh <- 500
+tc_init <- length(time_ID) - hold_out + (fh/2)
+
+log_price_series <- window(NVDA$NVDA.Close, start = "2012-01-03")
+
+time_ID <- seq_along(log_price_series)
+log_price <- log(as.numeric(log_price_series))
+
+output <- lpplsF(
+  time_ID = time_ID, 
+  log_price = log_price, 
+  fh = fh, 
+  hold_out = hold_out, 
+  lower = c(0.1, 6, -0.03, 0.8), ## Set B_min to -0.03 for lower border of trace plot
+  upper = c(0.9, 13, -1e-14, 1e6), 
+  tc_init = tc_init, 
+  m_init = 0.2, 
+  o_init = 12, 
+  num_searches = num_searches, 
+  mode = "MPL", 
+  mpl_plot = 1, 
+  mpl_cutoff = c(0.05, 0.1, 0.5),
+  fp = 1, 
+  cp = 1, 
+  sp = 1, 
+  tp = c(1,1,1), 
+  tp_id = 1, 
+  pp = 1, 
+  mp = 1, 
+  factr = 1e-08, 
+  fb = 1
+)
+```
+
+```{r}
+output$fit_plot
+```
+
+```{r}
+tc_hat_mpl <- output$mpl_output$tc_hat_mpl
+tc_hat_mpl
+```
+
+```{r}
+log_price_series[tc_hat_mpl]
+```
+
+
+
+```{r}
+
+lppls <- LPPLS(t = time_ID[1:(output$fit[[1]]$tc - 1)], A = output$fit[[1]]$A, 
+        B = output$fit[[1]]$B, 
+        C1 = output$fit[[1]]$C1, 
+        C2 = output$fit[[1]]$C2, 
+        tc = output$fit[[1]]$tc, 
+        m = output$fit[[1]]$m, 
+        omega =  output$fit[[1]]$omega)
+# lppls <- lppls[!is.na(lppls)]
+
+df_raw <- data.frame(
+  logprice = log_price,
+  ID = time_ID,
+  Date = index(log_price_series),
+  legend = rep("(1) raw data", length(time_ID))
+)
+
+df_fit <- data.frame(
+  logprice = 1:length(lppls), #c(lppls, rep(NA, length(time_ID) - length(lppls))), 
+  ID =  1:length(lppls), #time_ID[1:length(time_ID)],
+  Date = index(log_price_series)[1:length(lppls)], #index(log_price_series),
+  legend = rep("(2) fit", length(lppls))
+)
+for(i in 1:length(lppls)){
+  df_fit$logprice[i] <- lppls[i]
+}
+
+# df_fit <- data.frame(
+#   logprice = 1:length(lppls), #c(lppls, rep(NA, length(time_ID) - length(lppls))), 
+#   ID =  1:length(lppls), #time_ID[1:length(time_ID)],
+#   Date = index(log_price_series)[1:length(lppls)], #index(log_price_series),
+#   legend = rep("(2) fit", length(lppls))
+# )
+# for(i in 1:length(lppls)){
+#   df_fit$logprice[i] <- lppls[i]
+# }
+
+# df_pred <- data.frame(
+#   logprice = df_raw$logprice[(length(lppls)+1):(output$fit[[1]]$tc)], 
+#   ID = (length(lppls)+1):(output$fit[[1]]$tc), 
+#   Date = df_raw$Date[(length(lppls)+1):(output$fit[[1]]$tc)],
+#   legend = rep("(3) prediction", length((length(lppls)+1):(output$fit[[1]]$tc)))
+# )
+# for(i in (length(lppls) + 1):(output$fit[[1]]$tc - 1)){
+#   df_pred$logprice[i - length(time_ID)] <- LPPLS(
+#         t = i, 
+#         A = output$fit[[1]]$A, 
+#         B = output$fit[[1]]$B, 
+#         C1 = output$fit[[1]]$C1, 
+#         C2 = output$fit[[1]]$C2, 
+#         tc = output$fit[[1]]$tc, 
+#         m = output$fit[[1]]$m, 
+#         omega =  output$fit[[1]]$omega)
+# }
+
+
+#df_fit_plot <- rbind(df_raw, df_fit, df_pred)
+df_fit_plot <- rbind(df_raw, df_fit)
+```
+
+```{r}
+## Reorder legend labels
+#smooth11_plot$legend <- factor(smooth11_plot$legend, levels = c("rådata", "udglattet", "fit", "prædiktion"))
+
+fit_plot <- ggplot(df_fit_plot, aes(x = Date, y = logprice, group = legend, color = legend)) +
+  geom_line(linewidth = 0.3) +
+  #geom_vline(aes(xintercept = Date[length(lppls)]), color = "royalblue", linetype = "dashed") +
+  geom_vline(aes(xintercept =  Date[output$fit[[1]]$tc]), color = "red", linetype = "dashed") +
+  scale_colour_manual(
+    #values = c("(1) raw data" = "darkgray", "(2) fit" = "royalblue", "(3) prediction" = "red"),
+    values = c("(1) raw data" = "darkgray", "(2) fit" = "royalblue"),
+    guide = guide_legend(override.aes = list(
+      linetype = "solid",
+      size = 0.5
+    ))) +
+  scale_x_date(
+    date_breaks = "1 year",      # Show a label every year
+    date_labels = "%Y",          # Format as just the year
+    expand = c(0.01, 0.01)       # Reduce padding
+  ) +
+  labs(title = "Nvidia log prices: LPPLS bubble detection", subtitle = "tc = 2025-09-15")
+fit_plot
+```
+
+
+
+```{r}
+output$mpl_output$LI
+```
+```{r}
+log_price_series[3436]
+log_price_series[3455]
+```
+
+```{r}
+output$mpl_plot
+```
+
+```{r}
+output$param_plot
+```
+
+
+```{r}
+output$matrix_plot
+```
+
+
+```{r}
+output$contour_plot
+```
+
+```{r}
+output$surface_plot
+```
+
