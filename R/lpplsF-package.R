@@ -1,0 +1,49 @@
+#' lpplsF: Log-Periodic Power Law Singularity Model for Financial Bubbles
+#'
+#' Implementation of the LPPLS model for detecting and analysing financial
+#' bubbles, based on the calibration methods of Filimonov & Sornette (2013)
+#' and the Modified Profile Likelihood inference from Filimonov, Demos &
+#' Sornette (2017).
+#'
+#' @section Main Functions:
+#' \describe{
+#'   \item{\code{\link{lpplsF}}}{Main fitting function for the LPPLS model}
+#'   \item{\code{\link{LPPLS}}}{Compute LPPLS model values}
+#'   \item{\code{\link{SSE}}}{Compute sum of squared errors}
+#'   \item{\code{\link{fit_plot}}}{Generate fit visualization}
+#'   \item{\code{\link{contour_plot_sse}}}{Generate SSE contour plots}
+#' }
+#'
+#' @section Model Description:
+#' The LPPLS model describes the log-price dynamics of financial assets
+#' approaching a critical point (bubble peak or crash):
+#'
+#' \deqn{y(t) = A + (t_c - t)^m [B + C_1 \cos(\omega \log(t_c - t)) + C_2 \sin(\omega \log(t_c - t))]}
+#'
+#' where:
+#' \itemize{
+#'   \item \eqn{t_c} is the critical time
+#'   \item \eqn{m} is the power law exponent (typically 0.1-0.9)
+#'   \item \eqn{\omega} is the log-periodic frequency (typically 6-13)
+#'   \item \eqn{A, B, C_1, C_2} are linear parameters
+#' }
+#'
+#' @section Optimization Modes:
+#' \describe{
+#'   \item{F1}{Simultaneous optimization of all nonlinear parameters}
+#'   \item{F2}{Two-stage: optimize (m, omega) for each tc, then select best tc}
+#'   \item{MPL}{Modified Profile Likelihood with confidence intervals for tc}
+#' }
+#'
+#' @references
+#' Filimonov, V., & Sornette, D. (2013). A stable and robust calibration scheme
+#' of the log-periodic power law model. Physica A, 392(17), 3698-3707.
+#'
+#' Filimonov, V., Demos, G., & Sornette, D. (2017). Modified profile likelihood
+#' inference and interval forecast of the burst of financial bubbles.
+#' Quantitative Finance, 17(8), 1167-1186.
+#'
+#' @docType package
+#' @name lpplsF-package
+#' @aliases lpplsF-package
+"_PACKAGE"

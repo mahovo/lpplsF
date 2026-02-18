@@ -181,7 +181,7 @@ library(rlist) ## Sort list of fits
 ##                  after the modelling period, or the first time step of the
 ##                  forecasting horizon.
 
-lpplsF <- function(time_ID, log_price, fh = 30, hold_out = 15, lower = c(0.1, 6, -1e14, 0.8), upper = c(0.9, 13, -1e-14, 1e6), tc_init = 1000, m_init = 0.5, o_init = 13, num_searches = 20, mode = "F2", mpl_plot = 0, mpl_cutoff = c(0.05, 0.1, 0.5), fp = 0, cp = 0, sp = 0, tp = c(0,0,0), tp_id = 1, pp = 0, mp = 0, factr = 1e-08, fb = 0) {
+lpplsF_thesis <- function(time_ID, log_price, fh = 30, hold_out = 15, lower = c(0.1, 6, -1e14, 0.8), upper = c(0.9, 13, -1e-14, 1e6), tc_init = 1000, m_init = 0.5, o_init = 13, num_searches = 20, mode = "F2", mpl_plot = 0, mpl_cutoff = c(0.05, 0.1, 0.5), fp = 0, cp = 0, sp = 0, tp = c(0,0,0), tp_id = 1, pp = 0, mp = 0, factr = 1e-08, fb = 0) {
   if(length(time_ID) != length(log_price)) {
     warning(paste0("t and log_p vectors must be same length.\n"))
     return(print("Execution aborted..."))
