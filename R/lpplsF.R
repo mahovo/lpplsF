@@ -96,12 +96,12 @@
 #' t <- 1:200
 #' true_params <- list(A = 4, B = -0.015, C1 = 0.002, C2 = 0.001,
 #'                     tc = 250, m = 0.5, omega = 9)
-#' log_p <- LPPLS(t, true_params$A, true_params$B, true_params$C1,
-#'                true_params$C2, true_params$tc, true_params$m,
-#'                true_params$omega) + rnorm(200, 0, 0.01)
+#' log_p <- eval_lppls(t, true_params$A, true_params$B, true_params$C1,
+#'                    true_params$C2, true_params$tc, true_params$m,
+#'                    true_params$omega) + rnorm(200, 0, 0.01)
 #'
 #' # Fit model
-#' result <- lpplsF(time_ID = t, log_price = log_p,
+#' result <- fit_lppls(time_ID = t, log_price = log_p,
 #'                  fh = 100, hold_out = 0,
 #'                  tc_init = 250, mode = "F2",
 #'                  num_searches = 10, fp = TRUE)
@@ -120,15 +120,30 @@
 #' @importFrom tidyr gather
 #' @importFrom stats optim runif
 #' @export
-lpplsF <- function(time_ID, log_price, fh = 30, hold_out = 15,
-                   lower = c(0.1, 6, -1e14, 0.8),
-                   upper = c(0.9, 13, -1e-14, 1e6),
-                   tc_init = 1000, m_init = 0.5, o_init = 13,
-                   num_searches = 20, mode = "F2",
-                   mpl_plot = FALSE, mpl_cutoff = c(0.05, 0.1, 0.5),
-                   fp = FALSE, cp = FALSE, sp = FALSE,
-                   tp = c(0, 0, 0), tp_id = 1, pp = FALSE, mp = FALSE,
-                   factr = 1e-08, fb = FALSE) {
+fit_lppls <- function(
+  time_ID,
+  log_price,
+  fh = 30,
+  hold_out = 15,
+  lower = c(0.1, 6, -1e14, 0.8),
+  upper = c(0.9, 13, -1e-14, 1e6),
+  tc_init = 1000,
+  m_init = 0.5,
+  o_init = 13,
+  num_searches = 20,
+  mode = "F2",
+  mpl_plot = FALSE,
+  mpl_cutoff = c(0.05, 0.1, 0.5),
+  fp = FALSE,
+  cp = FALSE,
+  sp = FALSE,
+  tp = c(0, 0, 0),
+  tp_id = 1,
+  pp = FALSE,
+  mp = FALSE,
+  factr = 1e-08,
+  fb = FALSE
+) {
 
   # Input validation
   if (length(time_ID) != length(log_price)) {
@@ -167,8 +182,8 @@ lpplsF <- function(time_ID, log_price, fh = 30, hold_out = 15,
     if (tc <= max(t)) return(Inf)
 
     beta <- beta_calculator(log_p, t, tc, m, omega)
-    fitted <- LPPLS(t, beta["A"], beta["B"], beta["C1"], beta["C2"],
-                    tc, m, omega, mode = 0)
+    fitted <- eval_lppls(t, beta["A"], beta["B"], beta["C1"], beta["C2"],
+                         tc, m, omega, mode = 0)
     sum((log_p - fitted)^2, na.rm = TRUE)
   }
 
@@ -178,8 +193,8 @@ lpplsF <- function(time_ID, log_price, fh = 30, hold_out = 15,
     omega <- par[2]
 
     beta <- beta_calculator(log_p, t, tc, m, omega)
-    fitted <- LPPLS(t, beta["A"], beta["B"], beta["C1"], beta["C2"],
-                    tc, m, omega, mode = 0)
+    fitted <- eval_lppls(t, beta["A"], beta["B"], beta["C1"], beta["C2"],
+                         tc, m, omega, mode = 0)
     sum((log_p - fitted)^2, na.rm = TRUE)
   }
 
@@ -188,8 +203,8 @@ lpplsF <- function(time_ID, log_price, fh = 30, hold_out = 15,
     if (tc <= max(t)) return(Inf)
 
     beta <- beta_calculator(log_p, t, tc, m, omega)
-    fitted <- LPPLS(t, beta["A"], beta["B"], beta["C1"], beta["C2"],
-                    tc, m, omega, mode = 0)
+    fitted <- eval_lppls(t, beta["A"], beta["B"], beta["C1"], beta["C2"],
+                         tc, m, omega, mode = 0)
     sum((log_p - fitted)^2, na.rm = TRUE)
   }
 

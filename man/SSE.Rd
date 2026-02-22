@@ -29,8 +29,8 @@ par <- list(A = 4, B = -0.015, C1 = 0.0015, C2 = 0.001,
 
 # Generate synthetic data with noise
 t <- 1:100
-log_p <- LPPLS(t, par$A, par$B, par$C1, par$C2,
-               par$tc, par$m, par$omega) + rnorm(100, 0, 0.01)
+log_p <- eval_lppls(t, par$A, par$B, par$C1, par$C2,
+                   par$tc, par$m, par$omega) + rnorm(100, 0, 0.01)
 
 # Calculate SSE
 sse_value <- SSE(par, log_p, t)

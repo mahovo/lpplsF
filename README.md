@@ -16,7 +16,7 @@
 ```r
 # Install from GitHub (development version)
 # install.packages("devtools")
-devtools::install_github("yourusername/lpplsF")
+devtools::install_github("mahovo/lpplsF")
 
 # Once on CRAN
 # install.packages("lpplsF")
@@ -32,12 +32,12 @@ set.seed(123)
 t <- 1:200
 true_params <- list(A = 4, B = -0.015, C1 = 0.002, C2 = 0.001,
                     tc = 250, m = 0.5, omega = 9)
-log_p <- LPPLS(t, true_params$A, true_params$B, true_params$C1,
-               true_params$C2, true_params$tc, true_params$m,
-               true_params$omega) + rnorm(200, 0, 0.01)
+log_p <- eval_lppls(t, true_params$A, true_params$B, true_params$C1,
+                    true_params$C2, true_params$tc, true_params$m,
+                    true_params$omega) + rnorm(200, 0, 0.01)
 
 # Fit the LPPLS model
-result <- lpplsF(
+result <- fit_lppls(
   time_ID = t,
   log_price = log_p,
   fh = 100,           # Forecast horizon
@@ -59,15 +59,15 @@ print(result$fit_plot)
 
 The LPPLS model describes log-price dynamics approaching a critical point:
 
-```
-y(t) = A + (tc - t)^m [B + C1*cos(ω*log(tc-t)) + C2*sin(ω*log(tc-t))]
-```
+$$y(t) = A + (t_c - t)^m [B + C_1 \cos(\omega \log(t_c-t)) + C_2 \sin(\omega \log(t_c-t))]$$
 
-where:
-- `tc` is the critical time (bubble peak)
-- `m` is the power law exponent (typically 0.1-0.9)
-- `ω` (omega) is the log-periodic frequency (typically 6-13)
-- `A, B, C1, C2` are linear parameters
+
+where:  
+
+- $t_c$ is the critical time (bubble peak)  
+- $m$ is the power law exponent (typically 0.1-0.9)  
+- $\omega$ (omega) is the log-periodic frequency (typically 6-13)  
+- $A$, $B$, $C_1$, $C_2$ are linear parameters  
 
 The damping coefficient `D = m|B| / (ω√(C1² + C2²))` measures the strength of oscillations relative to power law growth. Filimonov (2017) suggests D ≥ 0.8 for valid bubble detection.
 
@@ -83,8 +83,8 @@ The damping coefficient `D = m|B| / (ω√(C1² + C2²))` measures the strength 
 
 | Function | Description |
 |----------|-------------|
-| `lpplsF()` | Main fitting function |
-| `LPPLS()` | Compute LPPLS model values |
+| `fit_lppls()` | Main fitting function |
+| `eval_lppls()` | Compute LPPLS model values |
 | `SSE()` | Compute sum of squared errors |
 | `fit_plot()` | Generate fit visualization |
 | `contour_plot_sse()` | Generate SSE contour plots |

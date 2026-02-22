@@ -8,7 +8,7 @@
 #' Calculates the Modified Profile Likelihood and confidence intervals
 #' for the critical time tc, following Filimonov et al. (2017).
 #'
-#' @param fit List of fitted model results from lpplsF().
+#' @param fit List of fitted model results from fit_lppls().
 #' @param log_p Numeric vector of log-prices.
 #' @param t Numeric vector of time indices.
 #' @param fh Integer, forecast horizon.
@@ -132,8 +132,8 @@ compute_mpl_loglik <- function(tc, tc_hat, Psi_hat_tc, Psi_hat, log_p, t) {
   beta_vals <- beta_calc(log_p, t, tc, Psi_hat_tc[1], Psi_hat_tc[2])
 
   # Compute fitted values and SSE
-  fitted <- LPPLS(t, beta_vals["A"], beta_vals["B"], beta_vals["C1"], beta_vals["C2"],
-                  tc, Psi_hat_tc[1], Psi_hat_tc[2], mode = 0)
+  fitted <- eval_lppls(t, beta_vals["A"], beta_vals["B"], beta_vals["C1"], beta_vals["C2"],
+                       tc, Psi_hat_tc[1], Psi_hat_tc[2], mode = 0)
   s_tc <- sum((log_p - fitted)^2, na.rm = TRUE) / n
 
   # Compute matrices
@@ -312,7 +312,7 @@ create_fit_plot <- function(fit, time_ID, log_price, n_model) {
   ggplot2::ggplot(plot_data, ggplot2::aes(x = ID, y = log_p)) +
     ggplot2::geom_line(color = "royalblue1") +
     ggplot2::geom_function(
-      fun = LPPLS,
+      fun = eval_lppls,
       n = floor(fit$tc) - 1,
       args = list(
         A = fit$A,
@@ -346,8 +346,8 @@ create_contour_data <- function(fit, log_p, t, lower, upper, beta_calculator, fb
 
   sse_func <- function(m_val, omega_val) {
     beta <- beta_calculator(log_p, t, tc_val, m_val, omega_val)
-    fitted <- LPPLS(t, beta["A"], beta["B"], beta["C1"], beta["C2"],
-                    tc_val, m_val, omega_val, mode = 0)
+    fitted <- eval_lppls(t, beta["A"], beta["B"], beta["C1"], beta["C2"],
+                         tc_val, m_val, omega_val, mode = 0)
     sum((log_p - fitted)^2, na.rm = TRUE)
   }
 
@@ -510,7 +510,7 @@ create_matrix_plot <- function(n, fh, lower, upper, log_p, t, SSE2_func) {
 #' @examples
 #' \dontrun{
 #' # After fitting a model
-#' result <- lpplsF(time_ID = t, log_price = log_p, mode = "F2")
+#' result <- fit_lppls(time_ID = t, log_price = log_p, mode = "F2")
 #' p <- fit_plot(result$fit[[1]], t, log_p)
 #' print(p)
 #' }
@@ -523,7 +523,7 @@ fit_plot <- function(fit, time_ID, log_price, mode = 0) {
   ggplot2::ggplot(plot_data, ggplot2::aes(x = ID, y = log_p)) +
     ggplot2::geom_line(linewidth = 0.5, color = "royalblue1") +
     ggplot2::geom_function(
-      fun = LPPLS,
+      fun = eval_lppls,
       args = list(
         A = fit$A,
         B = fit$B,

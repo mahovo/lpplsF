@@ -7,8 +7,8 @@
 #'
 #' @section Main Functions:
 #' \describe{
-#'   \item{\code{\link{lpplsF}}}{Main fitting function for the LPPLS model}
-#'   \item{\code{\link{LPPLS}}}{Compute LPPLS model values}
+#'   \item{\code{\link{fit_lppls}}}{Main fitting function for the LPPLS model}
+#'   \item{\code{\link{eval_lppls}}}{Compute LPPLS model values}
 #'   \item{\code{\link{SSE}}}{Compute sum of squared errors}
 #'   \item{\code{\link{fit_plot}}}{Generate fit visualization}
 #'   \item{\code{\link{contour_plot_sse}}}{Generate SSE contour plots}

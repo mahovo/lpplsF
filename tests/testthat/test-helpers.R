@@ -112,7 +112,7 @@ test_that("beta_calculator produces correct linear coefficients", {
   m <- 0.5
   omega <- 9
 
-  log_p <- LPPLS(t, true_params$A, true_params$B, true_params$C1,
+  log_p <- eval_lppls(t, true_params$A, true_params$B, true_params$C1,
                  true_params$C2, tc, m, omega)
 
   # Calculate beta given known nonlinear params

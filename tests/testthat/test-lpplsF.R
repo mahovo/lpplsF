@@ -8,40 +8,40 @@ generate_bubble_data <- function(n = 200, tc = 250, noise_sd = 0.01, seed = 123)
     A = 4, B = -0.015, C1 = 0.002, C2 = 0.001,
     tc = tc, m = 0.5, omega = 9
   )
-  log_p <- LPPLS(t, true_params$A, true_params$B, true_params$C1,
+  log_p <- eval_lppls(t, true_params$A, true_params$B, true_params$C1,
                  true_params$C2, true_params$tc, true_params$m,
                  true_params$omega) + rnorm(n, 0, noise_sd)
   list(t = t, log_p = log_p, true_params = true_params)
 }
 
-test_that("lpplsF validates input lengths", {
+test_that("fit_lppls validates input lengths", {
   expect_error(
-    lpplsF(time_ID = 1:100, log_price = 1:50),
+    fit_lppls(time_ID = 1:100, log_price = 1:50),
     "time_ID and log_price vectors must have the same length"
   )
 })
 
-test_that("lpplsF validates mode parameter", {
+test_that("fit_lppls validates mode parameter", {
   data <- generate_bubble_data(n = 50)
   expect_error(
-    lpplsF(time_ID = data$t, log_price = data$log_p, mode = "invalid"),
+    fit_lppls(time_ID = data$t, log_price = data$log_p, mode = "invalid"),
     "mode must be one of: 'F1', 'F2', 'MPL'"
   )
 })
 
-test_that("lpplsF validates bound vectors", {
+test_that("fit_lppls validates bound vectors", {
   data <- generate_bubble_data(n = 50)
   expect_error(
-    lpplsF(time_ID = data$t, log_price = data$log_p, lower = c(0.1, 6)),
+    fit_lppls(time_ID = data$t, log_price = data$log_p, lower = c(0.1, 6)),
     "lower and upper must be vectors of length 4"
   )
 })
 
-test_that("lpplsF returns expected structure in F1 mode", {
+test_that("fit_lppls returns expected structure in F1 mode", {
   skip_on_cran()  # Skip on CRAN due to computation time
 
   data <- generate_bubble_data(n = 100, tc = 150)
-  result <- lpplsF(
+  result <- fit_lppls(
     time_ID = data$t,
     log_price = data$log_p,
     fh = 30,
@@ -66,11 +66,11 @@ test_that("lpplsF returns expected structure in F1 mode", {
   expect_equal(nrow(result$fit[[2]]), 5)  # num_searches = 5
 })
 
-test_that("lpplsF returns expected structure in F2 mode", {
+test_that("fit_lppls returns expected structure in F2 mode", {
   skip_on_cran()
 
   data <- generate_bubble_data(n = 100, tc = 150)
-  result <- lpplsF(
+  result <- fit_lppls(
     time_ID = data$t,
     log_price = data$log_p,
     fh = 20,
@@ -94,14 +94,14 @@ test_that("lpplsF returns expected structure in F2 mode", {
   expect_equal(length(result$fit[[4]]), 20)  # fh = 20
 })
 
-test_that("lpplsF parameters are within specified bounds", {
+test_that("fit_lppls parameters are within specified bounds", {
   skip_on_cran()
 
   data <- generate_bubble_data(n = 100, tc = 150)
   lower <- c(0.1, 6, -1e14, 0.8)
   upper <- c(0.9, 13, -1e-14, 1e6)
 
-  result <- lpplsF(
+  result <- fit_lppls(
     time_ID = data$t,
     log_price = data$log_p,
     fh = 20,
@@ -130,13 +130,13 @@ test_that("lpplsF parameters are within specified bounds", {
   expect_lte(fit$tc, n_model + 20)  # fh = 20
 })
 
-test_that("lpplsF recovers true parameters from clean data", {
+test_that("fit_lppls recovers true parameters from clean data", {
   skip_on_cran()
 
   # Generate data with very low noise
   data <- generate_bubble_data(n = 150, tc = 200, noise_sd = 0.001)
 
-  result <- lpplsF(
+  result <- fit_lppls(
     time_ID = data$t,
     log_price = data$log_p,
     fh = 80,
@@ -159,11 +159,11 @@ test_that("lpplsF recovers true parameters from clean data", {
   expect_equal(fit$omega, true$omega, tolerance = 2)
 })
 
-test_that("lpplsF generates fit plot when requested", {
+test_that("fit_lppls generates fit plot when requested", {
   skip_on_cran()
 
   data <- generate_bubble_data(n = 100, tc = 150)
-  result <- lpplsF(
+  result <- fit_lppls(
     time_ID = data$t,
     log_price = data$log_p,
     fh = 20,
@@ -179,11 +179,11 @@ test_that("lpplsF generates fit plot when requested", {
   expect_s3_class(result$fit_plot, "ggplot")
 })
 
-test_that("lpplsF out_of_range_tracker is populated correctly", {
+test_that("fit_lppls out_of_range_tracker is populated correctly", {
   skip_on_cran()
 
   data <- generate_bubble_data(n = 100, tc = 150)
-  result <- lpplsF(
+  result <- fit_lppls(
     time_ID = data$t,
     log_price = data$log_p,
     fh = 20,
@@ -200,14 +200,14 @@ test_that("lpplsF out_of_range_tracker is populated correctly", {
   expect_true("D" %in% names(result$out_of_range_tracker))
 })
 
-test_that("lpplsF handles edge case of short time series", {
+test_that("fit_lppls handles edge case of short time series", {
   skip_on_cran()
 
   t <- 1:30
   log_p <- log(cumsum(1 + rnorm(30, 0.01, 0.01)))
 
   # Should run without error, though results may not be meaningful
-  result <- lpplsF(
+  result <- fit_lppls(
     time_ID = t,
     log_price = log_p,
     fh = 10,

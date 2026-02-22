@@ -2,6 +2,7 @@
 % Please edit documentation in R/lpplsF-package.R
 \docType{package}
 \name{lpplsF-package}
+\alias{lpplsF}
 \alias{lpplsF-package}
 \title{lpplsF: Log-Periodic Power Law Singularity Model for Financial Bubbles}
 \description{
@@ -13,8 +14,8 @@ Sornette (2017).
 \section{Main Functions}{
 
 \describe{
-\item{\code{\link{lpplsF}}}{Main fitting function for the LPPLS model}
-\item{\code{\link{LPPLS}}}{Compute LPPLS model values}
+\item{\code{\link{fit_lppls}}}{Main fitting function for the LPPLS model}
+\item{\code{\link{eval_lppls}}}{Compute LPPLS model values}
 \item{\code{\link{SSE}}}{Compute sum of squared errors}
 \item{\code{\link{fit_plot}}}{Generate fit visualization}
 \item{\code{\link{contour_plot_sse}}}{Generate SSE contour plots}

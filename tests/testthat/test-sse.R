@@ -6,7 +6,7 @@ test_that("SSE returns a single numeric value", {
               tc = 150, m = 0.5, omega = 9)
 
   # Generate synthetic data
-  log_p <- LPPLS(t, par$A, par$B, par$C1, par$C2,
+  log_p <- eval_lppls(t, par$A, par$B, par$C1, par$C2,
                  par$tc, par$m, par$omega)
 
   result <- SSE(par, log_p, t)
@@ -22,7 +22,7 @@ test_that("SSE is zero when model perfectly fits data", {
               tc = 150, m = 0.5, omega = 9)
 
   # Generate data from the exact model
-  log_p <- LPPLS(t, par$A, par$B, par$C1, par$C2,
+  log_p <- eval_lppls(t, par$A, par$B, par$C1, par$C2,
                  par$tc, par$m, par$omega)
 
   result <- SSE(par, log_p, t)
@@ -37,7 +37,7 @@ test_that("SSE is positive for noisy data", {
 
   # Generate data with noise
   set.seed(123)
-  log_p <- LPPLS(t, par$A, par$B, par$C1, par$C2,
+  log_p <- eval_lppls(t, par$A, par$B, par$C1, par$C2,
                  par$tc, par$m, par$omega) + rnorm(100, 0, 0.01)
 
   result <- SSE(par, log_p, t)
@@ -59,7 +59,7 @@ test_that("SSE increases with larger noise", {
   par <- list(A = 4, B = -0.015, C1 = 0.001, C2 = 0.001,
               tc = 150, m = 0.5, omega = 9)
 
-  base <- LPPLS(t, par$A, par$B, par$C1, par$C2,
+  base <- eval_lppls(t, par$A, par$B, par$C1, par$C2,
                 par$tc, par$m, par$omega)
 
   set.seed(123)
@@ -79,7 +79,7 @@ test_that("SSE is symmetric in residuals", {
   par <- list(A = 4, B = -0.015, C1 = 0.001, C2 = 0.001,
               tc = 150, m = 0.5, omega = 9)
 
-  base <- LPPLS(t, par$A, par$B, par$C1, par$C2,
+  base <- eval_lppls(t, par$A, par$B, par$C1, par$C2,
                 par$tc, par$m, par$omega)
 
   # Add positive and negative deviations
@@ -98,7 +98,7 @@ test_that("SSE handles NA values gracefully", {
   par <- list(A = 4, B = -0.015, C1 = 0.001, C2 = 0.001,
               tc = 150, m = 0.5, omega = 9)
 
-  log_p <- LPPLS(t, par$A, par$B, par$C1, par$C2,
+  log_p <- eval_lppls(t, par$A, par$B, par$C1, par$C2,
                  par$tc, par$m, par$omega)
   log_p[50] <- NA  # Introduce an NA
 

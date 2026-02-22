@@ -49,14 +49,14 @@
 #' # Generate LPPLS curve with known parameters
 #' params <- list(A = 4, B = -0.015, C1 = 0.0015, C2 = 0.001,
 #'                tc = 150, m = 0.5, omega = 9)
-#' y <- LPPLS(t, params$A, params$B, params$C1, params$C2,
-#'            params$tc, params$m, params$omega)
+#' y <- eval_lppls(t, params$A, params$B, params$C1, params$C2,
+#'                params$tc, params$m, params$omega)
 #'
 #' # Plot the result
 #' plot(t, y, type = "l", main = "LPPLS Model")
 #'
 #' @export
-LPPLS <- function(t, A, B, C1, C2, tc, m, omega, mode = 0,
+eval_lppls <- function(t, A, B, C1, C2, tc, m, omega, mode = 0,
                   T1 = 500, T2 = 1990, omega2 = 0, omega3 = 0) {
 
   # Input validation
@@ -124,8 +124,8 @@ LPPLS <- function(t, A, B, C1, C2, tc, m, omega, mode = 0,
 #'
 #' # Generate synthetic data with noise
 #' t <- 1:100
-#' log_p <- LPPLS(t, par$A, par$B, par$C1, par$C2,
-#'                par$tc, par$m, par$omega) + rnorm(100, 0, 0.01)
+#' log_p <- eval_lppls(t, par$A, par$B, par$C1, par$C2,
+#'                    par$tc, par$m, par$omega) + rnorm(100, 0, 0.01)
 #'
 #' # Calculate SSE
 #' sse_value <- SSE(par, log_p, t)
@@ -136,7 +136,7 @@ SSE <- function(par, log_p, t, mode = 0) {
     stop("'log_p' and 't' must have the same length")
   }
 
-  res <- log_p - LPPLS(t, par$A, par$B, par$C1, par$C2,
+  res <- log_p - eval_lppls(t, par$A, par$B, par$C1, par$C2,
                         par$tc, par$m, par$omega, mode)
   drop(sum(res^2, na.rm = TRUE))
 }

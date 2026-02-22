@@ -1,17 +1,17 @@
 # Tests for LPPLS model function
 # Following test-driven development approach
 
-test_that("LPPLS function returns correct dimensions", {
+test_that("eval_lppls function returns correct dimensions", {
   t <- 1:100
-  result <- LPPLS(t, A = 4, B = -0.015, C1 = 0.001, C2 = 0.001,
+  result <- eval_lppls(t, A = 4, B = -0.015, C1 = 0.001, C2 = 0.001,
                   tc = 150, m = 0.5, omega = 9)
 
   expect_length(result, 100)
   expect_type(result, "double")
 })
 
-test_that("LPPLS function handles scalar input", {
-  result <- LPPLS(t = 50, A = 4, B = -0.015, C1 = 0.001, C2 = 0.001,
+test_that("eval_lppls function handles scalar input", {
+  result <- eval_lppls(t = 50, A = 4, B = -0.015, C1 = 0.001, C2 = 0.001,
                   tc = 150, m = 0.5, omega = 9)
 
   expect_length(result, 1)
@@ -19,9 +19,9 @@ test_that("LPPLS function handles scalar input", {
   expect_false(is.na(result))
 })
 
-test_that("LPPLS function produces NaN for t >= tc", {
+test_that("eval_lppls function produces NaN for t >= tc", {
   t <- 1:200
-  result <- LPPLS(t, A = 4, B = -0.015, C1 = 0.001, C2 = 0.001,
+  result <- eval_lppls(t, A = 4, B = -0.015, C1 = 0.001, C2 = 0.001,
                   tc = 150, m = 0.5, omega = 9)
 
   # Values before tc should be valid
@@ -29,21 +29,21 @@ test_that("LPPLS function produces NaN for t >= tc", {
 
   # Values at and after tc will produce NaN due to (tc-t)^m with tc-t <= 0
   expect_warning(
-    LPPLS(150:200, A = 4, B = -0.015, C1 = 0.001, C2 = 0.001,
+    eval_lppls(150:200, A = 4, B = -0.015, C1 = 0.001, C2 = 0.001,
           tc = 150, m = 0.5, omega = 9),
     "Some time values are >= tc"
   )
 })
 
-test_that("LPPLS function validates input types", {
+test_that("eval_lppls function validates input types", {
   expect_error(
-    LPPLS(t = "not numeric", A = 4, B = -0.015, C1 = 0.001, C2 = 0.001,
+    eval_lppls(t = "not numeric", A = 4, B = -0.015, C1 = 0.001, C2 = 0.001,
           tc = 150, m = 0.5, omega = 9),
     "'t' must be a numeric vector"
   )
 })
 
-test_that("LPPLS mode 0 (Filimonov) produces expected behavior", {
+test_that("eval_lppls mode 0 (Filimonov) produces expected behavior", {
   # Test that the function follows the expected formula
   t <- 50
   A <- 4
@@ -54,7 +54,7 @@ test_that("LPPLS mode 0 (Filimonov) produces expected behavior", {
   m <- 0.5
   omega <- 9
 
-  result <- LPPLS(t, A, B, C1, C2, tc, m, omega, mode = 0)
+  result <- eval_lppls(t, A, B, C1, C2, tc, m, omega, mode = 0)
 
   # Manual calculation
   tau <- tc - t
@@ -64,18 +64,18 @@ test_that("LPPLS mode 0 (Filimonov) produces expected behavior", {
   expect_equal(result, expected)
 })
 
-test_that("LPPLS mode parameter is validated", {
+test_that("eval_lppls mode parameter is validated", {
   expect_error(
-    LPPLS(1:10, A = 4, B = -0.015, C1 = 0.001, C2 = 0.001,
+    eval_lppls(1:10, A = 4, B = -0.015, C1 = 0.001, C2 = 0.001,
           tc = 150, m = 0.5, omega = 9, mode = 5),
     "LPPLS mode must be 0, 1, 2 or 3"
   )
 })
 
-test_that("LPPLS produces monotonically changing values approaching tc", {
+test_that("eval_lppls produces monotonically changing values approaching tc", {
   # For a bubble, prices should generally increase approaching tc
   t <- 1:100
-  result <- LPPLS(t, A = 4, B = -0.015, C1 = 0.0001, C2 = 0.0001,
+  result <- eval_lppls(t, A = 4, B = -0.015, C1 = 0.0001, C2 = 0.0001,
                   tc = 150, m = 0.5, omega = 9)
 
   # The trend should be increasing (ignoring oscillations)

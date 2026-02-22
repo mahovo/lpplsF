@@ -24,7 +24,7 @@ Generate a plot showing the fitted LPPLS model against observed data.
 \examples{
 \dontrun{
 # After fitting a model
-result <- lpplsF(time_ID = t, log_price = log_p, mode = "F2")
+result <- fit_lppls(time_ID = t, log_price = log_p, mode = "F2")
 p <- fit_plot(result$fit[[1]], t, log_p)
 print(p)
 }
