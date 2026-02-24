@@ -112,17 +112,17 @@ test_that("beta_calculator produces correct linear coefficients", {
   m <- 0.5
   omega <- 9
 
-  log_p <- eval_lppls(t, true_params$A, true_params$B, true_params$C1,
+  log_p <- lpplsF::eval_lppls(t, true_params$A, true_params$B, true_params$C1,
                  true_params$C2, tc, m, omega)
 
   # Calculate beta given known nonlinear params
   beta <- beta_calc(log_p, t, tc, m, omega)
 
   # Should recover true linear parameters
-  expect_equal(beta["A"], true_params$A, tolerance = 1e-6)
-  expect_equal(beta["B"], true_params$B, tolerance = 1e-6)
-  expect_equal(beta["C1"], true_params$C1, tolerance = 1e-6)
-  expect_equal(beta["C2"], true_params$C2, tolerance = 1e-6)
+  expect_equal(unname(beta["A"]), true_params$A, tolerance = 1e-6)
+  expect_equal(unname(beta["B"]), true_params$B, tolerance = 1e-6)
+  expect_equal(unname(beta["C1"]), true_params$C1, tolerance = 1e-6)
+  expect_equal(unname(beta["C2"]), true_params$C2, tolerance = 1e-6)
 })
 
 test_that("validate_params correctly identifies valid parameters", {

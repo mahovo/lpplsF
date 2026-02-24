@@ -515,7 +515,6 @@ create_matrix_plot <- function(n, fh, lower, upper, log_p, t, SSE2_func) {
 #' print(p)
 #' }
 #'
-#' @import ggplot2
 #' @export
 fit_plot <- function(fit, time_ID, log_price, mode = 0) {
   plot_data <- data.frame(ID = time_ID, log_p = log_price)
@@ -570,7 +569,6 @@ fit_plot <- function(fit, time_ID, log_price, mode = 0) {
 #' print(result$contour_plot)
 #' }
 #'
-#' @import plotly
 #' @export
 contour_plot_sse <- function(log_p, t, par, vars,
                               lower = c(0.0, -0.001), upper = c(1.0, 0.001),

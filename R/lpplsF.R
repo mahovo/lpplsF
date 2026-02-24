@@ -113,8 +113,6 @@
 #' print(result$fit_plot)
 #' }
 #'
-#' @import ggplot2
-#' @import plotly
 #' @importFrom dplyr arrange filter
 #' @importFrom tibble tibble
 #' @importFrom tidyr gather
