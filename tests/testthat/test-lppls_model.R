@@ -21,17 +21,21 @@ test_that("eval_lppls function handles scalar input", {
 
 test_that("eval_lppls function produces NaN for t >= tc", {
   t <- 1:200
-  result <- eval_lppls(t, A = 4, B = -0.015, C1 = 0.001, C2 = 0.001,
+  result <- suppressWarnings(
+    eval_lppls(t, A = 4, B = -0.015, C1 = 0.001, C2 = 0.001,
                   tc = 150, m = 0.5, omega = 9)
+  )
 
   # Values before tc should be valid
   expect_true(all(!is.nan(result[1:149])))
 
   # Values at and after tc will produce NaN due to (tc-t)^m with tc-t <= 0
-  expect_warning(
-    eval_lppls(150:200, A = 4, B = -0.015, C1 = 0.001, C2 = 0.001,
-          tc = 150, m = 0.5, omega = 9),
-    "Some time values are >= tc"
+  suppressWarnings(
+    expect_warning(
+      eval_lppls(150:200, A = 4, B = -0.015, C1 = 0.001, C2 = 0.001,
+            tc = 150, m = 0.5, omega = 9),
+      "Some time values are >= tc"
+    )
   )
 })
 
