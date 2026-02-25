@@ -366,6 +366,8 @@ fit_lppls <- function(
         D = numeric(num_searches)
       )
 
+      opt2_counts <- list()
+
       for (i in seq_len(num_searches)) {
         # Set seed for reproducibility (matches trace plot)
         set.seed(i)
@@ -392,6 +394,8 @@ fit_lppls <- function(
           method = "L-BFGS-B",
           control = list(factr = factr)
         )
+
+        if (any(tp != 0)) opt2_counts[[i]] <- opt_result$counts[["function"]]
 
         # Calculate linear coefficients
         beta_vals <- beta_calculator(log_p, t, tc_k,
@@ -584,6 +588,74 @@ fit_lppls <- function(
       t = t,
       SSE2_func = SSE2
     )
+  }
+
+  # =========================================================================
+  # Trace plots (F2/MPL mode only)
+  # =========================================================================
+  if (any(tp != 0)) {
+    if (mode == "F2" || mode == "MPL") {
+      tc_val <- fit[[1]]$tc
+      need_B <- (tp[2] == 1 || tp[3] == 1)
+
+      # Replay optimization at best fit's tc, tracing parameter path
+      set.seed(fit2_best$ID)
+      s <- seq_len(opt2_counts[[fit2_best$ID]])
+
+      opt_trace <- sapply(s, function(iter) {
+        set.seed(fit2_best$ID)
+        opt_i <- stats::optim(
+          par = c(stats::runif(1, lower[1], upper[1]),
+                  stats::runif(1, lower[2], upper[2])),
+          fn = SSE2,
+          tc = tc_val,
+          log_p = log_p,
+          t = t,
+          lower = c(lower[1], lower[2]),
+          upper = c(upper[1], upper[2]),
+          method = "L-BFGS-B",
+          control = list(maxit = iter)
+        )$par
+
+        if (need_B) {
+          opt_i <- c(opt_i, unname(beta_calculator(
+            log_p, t, tc_val, opt_i[1], opt_i[2])["B"]))
+        }
+        opt_i
+      })
+
+      # Prepend initial point
+      if (need_B) {
+        init_B <- unname(beta_calculator(log_p, t, tc_val, m_init, o_init)["B"])
+        opt_trace <- matrix(c(m_init, o_init, init_B, opt_trace),
+                            byrow = FALSE, nrow = 3)
+      } else {
+        opt_trace <- matrix(c(m_init, o_init, opt_trace),
+                            byrow = FALSE, nrow = 2)
+      }
+
+      # Generate requested trace plots
+      if (tp[1] == 1) {
+        trace_plot_mo <- create_trace_plot(
+          1, opt_trace, lower, upper, SSE2, beta_calculator,
+          tc_val, log_p, t, tp_id, fb
+        )
+      }
+      if (tp[2] == 1) {
+        trace_plot_bm <- create_trace_plot(
+          2, opt_trace, lower, upper, SSE2, beta_calculator,
+          tc_val, log_p, t, tp_id, fb
+        )
+      }
+      if (tp[3] == 1) {
+        trace_plot_bo <- create_trace_plot(
+          3, opt_trace, lower, upper, SSE2, beta_calculator,
+          tc_val, log_p, t, tp_id, fb
+        )
+      }
+    } else {
+      warning("Trace plots are only available when mode = 'F2' or 'MPL'")
+    }
   }
 
   # Report timing

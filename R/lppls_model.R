@@ -56,8 +56,21 @@
 #' plot(t, y, type = "l", main = "LPPLS Model")
 #'
 #' @export
-eval_lppls <- function(t, A, B, C1, C2, tc, m, omega, mode = 0,
-                  T1 = 500, T2 = 1990, omega2 = 0, omega3 = 0) {
+eval_lppls <- function(
+  t,
+  A,
+  B,
+  C1,
+  C2,
+  tc,
+  m,
+  omega,
+  mode = 0,
+  T1 = 500,
+  T2 = 1990,
+  omega2 = 0,
+  omega3 = 0
+) {
 
   # Input validation
   if (!is.numeric(t)) {
@@ -131,7 +144,12 @@ eval_lppls <- function(t, A, B, C1, C2, tc, m, omega, mode = 0,
 #' sse_value <- SSE(par, log_p, t)
 #'
 #' @export
-SSE <- function(par, log_p, t, mode = 0) {
+SSE <- function(
+  par,
+  log_p,
+  t,
+  mode = 0
+) {
   if (length(log_p) != length(t)) {
     stop("'log_p' and 't' must have the same length")
   }

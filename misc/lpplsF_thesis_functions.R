@@ -638,7 +638,7 @@ lpplsF_thesis <- function(time_ID, log_price, fh = 30, hold_out = 15, lower = c(
       ## m * abs(B) / (omega * sqrt(C1^2 + C2^2))
       damp <- opt_tmp$par[[1]] * abs(beta_vals[2]) / (opt_tmp$par[[2]] * sqrt(beta_vals[3]^2 + beta_vals[4]^2))
       #if(damp <= lower[4]) {warning(paste0("F2, iteration 1: D out of range (", 1, ").\n"))}
-      if(damp <= lower[4]) {out_of_range_tracker$B[[length(out_of_range_tracker$D) + 1]] = list(tc_num = k, rand_iter_num = 1)}
+      if(damp <= lower[4]) {out_of_range_tracker$D[[length(out_of_range_tracker$D) + 1]] = list(tc_num = k, rand_iter_num = 1)}
       
       ## Add list of fitted coefficients to list of fits
       fit2_tmp <- tibble(ID = 1, value = opt_tmp$value, tc = tc_k, m = opt_tmp$par[[1]], omega = opt_tmp$par[[2]], A = beta_vals[1], B = beta_vals[2], C1 = beta_vals[3], C2 = beta_vals[4], D = damp)

@@ -496,6 +496,163 @@ create_matrix_plot <- function(n, fh, lower, upper, log_p, t, SSE2_func) {
 }
 
 
+#' Create Trace Plot
+#'
+#' Visualizes the L-BFGS-B optimization path over an SSE contour surface.
+#' Three selectors: 1 = (m, omega), 2 = (B, m), 3 = (B, omega).
+#'
+#' @param selector Integer (1, 2, or 3) selecting which parameter pair to plot.
+#' @param opt_trace Matrix with 2 or 3 rows (m, omega, [B]) and one column per step.
+#' @param lower Numeric vector of length 4, parameter lower bounds.
+#' @param upper Numeric vector of length 4, parameter upper bounds.
+#' @param SSE2_func SSE2 function (fixed tc) from fit_lppls.
+#' @param beta_calc Beta calculator function from fit_lppls.
+#' @param tc_val Numeric, the tc value for the trace.
+#' @param log_p Numeric vector of log-prices.
+#' @param t Numeric vector of time indices.
+#' @param tp_id Integer, which trace step to use for contour in selectors 2/3.
+#' @param fb Logical, whether to print feedback.
+#'
+#' @return A ggplot2 object.
+#'
+#' @keywords internal
+#' @noRd
+create_trace_plot <- function(selector, opt_trace, lower, upper,
+                               SSE2_func, beta_calc,
+                               tc_val, log_p, t, tp_id, fb = FALSE) {
+  if (fb) message(sprintf("Generating trace plot %d...", selector))
+
+  lattice_dim <- 100
+
+  if (selector == 1) {
+    # m vs omega lattice
+    lattice <- as.matrix(expand.grid(
+      m = seq(min(lower[1], min(opt_trace[1, ])),
+              max(upper[1], max(opt_trace[1, ])), length.out = lattice_dim),
+      omega = seq(min(lower[2], min(opt_trace[2, ])),
+                  max(upper[2], max(opt_trace[2, ])), length.out = lattice_dim)
+    ))
+    lattice_vals <- apply(lattice, 1, SSE2_func,
+                          tc = tc_val, log_p = log_p, t = t)
+
+  } else if (selector == 2) {
+    # B vs m lattice
+    lattice <- as.matrix(expand.grid(
+      m = seq(min(lower[1], min(opt_trace[1, ])),
+              max(upper[1], max(opt_trace[1, ])), length.out = lattice_dim),
+      B = seq(min(lower[3], min(opt_trace[3, ])),
+              max(upper[3], max(opt_trace[3, ])), length.out = lattice_dim)
+    ))
+
+    beta_tp <- beta_calc(log_p, t, tc_val, opt_trace[1, 1], opt_trace[2, 1])
+
+    if (tp_id < 1 || tp_id > ncol(opt_trace)) {
+      tp_id <- 1
+      warning("tp_id for (B,m) trace plot is <1 or too high. Replaced with tp_id=1")
+    }
+
+    SSE_tp <- function(par, a, c1, c2, tc, omega, log_p, t) {
+      SSE(par = list(A = a, B = par[2], C1 = c1, C2 = c2,
+                     tc = tc, m = par[1], omega = omega),
+          log_p = log_p, t = t)
+    }
+
+    lattice_vals <- apply(lattice, 1, SSE_tp,
+                          a = unname(beta_tp["A"]),
+                          c1 = unname(beta_tp["C1"]),
+                          c2 = unname(beta_tp["C2"]),
+                          tc = tc_val,
+                          omega = opt_trace[2, tp_id],
+                          log_p = log_p, t = t)
+
+  } else if (selector == 3) {
+    # B vs omega lattice
+    lattice <- as.matrix(expand.grid(
+      omega = seq(min(lower[2], min(opt_trace[2, ])),
+                  max(upper[2], max(opt_trace[2, ])), length.out = lattice_dim),
+      B = seq(min(lower[3], min(opt_trace[3, ])),
+              max(upper[3], max(opt_trace[3, ])), length.out = lattice_dim)
+    ))
+
+    beta_tp <- beta_calc(log_p, t, tc_val, opt_trace[1, 1], opt_trace[2, 1])
+
+    if (tp_id > ncol(opt_trace)) {
+      tp_id <- 1
+      warning("tp_id for (B,omega) trace plot too high. Replaced with tp_id=1")
+    }
+
+    SSE_tp <- function(par, a, c1, c2, tc, m, log_p, t) {
+      SSE(par = list(A = a, B = par[2], C1 = c1, C2 = c2,
+                     tc = tc, m = m, omega = par[1]),
+          log_p = log_p, t = t)
+    }
+
+    lattice_vals <- apply(lattice, 1, SSE_tp,
+                          a = unname(beta_tp["A"]),
+                          c1 = unname(beta_tp["C1"]),
+                          c2 = unname(beta_tp["C2"]),
+                          tc = tc_val,
+                          m = opt_trace[1, tp_id],
+                          log_p = log_p, t = t)
+  }
+
+  lattice <- as.data.frame(lattice)
+  lattice$vals <- lattice_vals
+
+  if (selector == 1) {
+    opt_df <- data.frame(m = opt_trace[1, ], omega = opt_trace[2, ])
+    opt_df$step <- seq_len(nrow(opt_df))
+
+    p <- ggplot2::ggplot(lattice, ggplot2::aes(x = m, y = omega)) +
+      ggplot2::geom_raster(ggplot2::aes(fill = vals)) +
+      ggplot2::geom_contour(ggplot2::aes(z = vals), col = "white") +
+      ggplot2::geom_path(data = opt_df, col = "orange") +
+      ggplot2::geom_point(data = opt_df, col = "orange") +
+      ggplot2::geom_point(data = head(opt_df, 1), shape = 21,
+                          fill = "red", color = "orange", size = 3) +
+      ggplot2::geom_point(data = tail(opt_df, 1), shape = 23,
+                          fill = "green", color = "orange", size = 3) +
+      ggplot2::scale_fill_viridis_c() +
+      ggplot2::coord_cartesian(expand = FALSE)
+
+  } else if (selector == 2) {
+    opt_df <- data.frame(m = opt_trace[1, ], B = opt_trace[3, ])
+    opt_df$step <- seq_len(nrow(opt_df))
+
+    p <- ggplot2::ggplot(lattice, ggplot2::aes(x = m, y = B)) +
+      ggplot2::geom_raster(ggplot2::aes(fill = vals)) +
+      ggplot2::geom_contour(ggplot2::aes(z = vals), col = "white") +
+      ggplot2::geom_path(data = opt_df, col = "orange") +
+      ggplot2::geom_point(data = opt_df, col = "orange") +
+      ggplot2::geom_point(data = head(opt_df, 1), shape = 21,
+                          fill = "red", color = "orange", size = 3) +
+      ggplot2::geom_point(data = tail(opt_df, 1), shape = 23,
+                          fill = "green", color = "orange", size = 3) +
+      ggplot2::scale_fill_viridis_c() +
+      ggplot2::coord_cartesian(expand = FALSE)
+
+  } else if (selector == 3) {
+    opt_df <- data.frame(omega = opt_trace[2, ], B = opt_trace[3, ])
+    opt_df$step <- seq_len(nrow(opt_df))
+
+    p <- ggplot2::ggplot(lattice, ggplot2::aes(x = omega, y = B)) +
+      ggplot2::geom_raster(ggplot2::aes(fill = vals)) +
+      ggplot2::geom_contour(ggplot2::aes(z = vals), col = "white") +
+      ggplot2::geom_path(data = opt_df, col = "orange") +
+      ggplot2::geom_point(data = opt_df, col = "orange") +
+      ggplot2::geom_point(data = head(opt_df, 1), shape = 21,
+                          fill = "red", color = "orange", size = 3) +
+      ggplot2::geom_point(data = tail(opt_df, 1), shape = 23,
+                          fill = "green", color = "orange", size = 3) +
+      ggplot2::scale_fill_viridis_c() +
+      ggplot2::coord_cartesian(expand = FALSE)
+  }
+
+  if (fb) message("Trace plot generated")
+  p
+}
+
+
 #' Create Fit Plot (Exported Version)
 #'
 #' Generate a plot showing the fitted LPPLS model against observed data.
