@@ -25,7 +25,8 @@ eval_lppls(
 
 \item{A}{Numeric scalar, the log-price at critical time.}
 
-\item{B}{Numeric scalar, the amplitude of power law growth (typically negative for bubbles).}
+\item{B}{Numeric scalar, the amplitude of power law growth (typically
+negative for bubbles).}
 
 \item{C1}{Numeric scalar, amplitude of cosine oscillation.}
 
@@ -49,7 +50,8 @@ eval_lppls(
 
 \item{T2}{Numeric scalar, scale parameter for mode 3 (default 1990).}
 
-\item{omega2}{Numeric scalar, secondary frequency for mode 2 and 3 (default 0).}
+\item{omega2}{Numeric scalar, secondary frequency for mode 2 and 3 (default
+0).}
 
 \item{omega3}{Numeric scalar, tertiary frequency for mode 3 (default 0).}
 }

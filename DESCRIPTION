@@ -2,8 +2,8 @@ Package: lpplsF
 Title: Log-Periodic Power Law Singularity Model for Financial Bubbles
 Version: 0.1.0
 Authors@R: 
-    person("Martin Hoshi", "Vognsen", , "martin@example.com", role = c("aut", "cre"),
-           comment = c(ORCID = "YOUR-ORCID-ID"))
+    person("Martin Hoshi", "Vognsen", , "martinvognsen@gmail.com", role = c("aut", "cre"),
+           comment = c(ORCID = "0000-0003-4460-7763"))
 Description: Implementation of the Log-Periodic Power Law Singularity (LPPLS) 
     model for detecting and analysing financial bubbles. Based on the calibration 
     methods described in Filimonov & Sornette (2013) and the Modified Profile 

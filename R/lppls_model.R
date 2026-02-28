@@ -6,7 +6,8 @@
 #'
 #' @param t Numeric vector of time indices.
 #' @param A Numeric scalar, the log-price at critical time.
-#' @param B Numeric scalar, the amplitude of power law growth (typically negative for bubbles).
+#' @param B Numeric scalar, the amplitude of power law growth (typically
+#'   negative for bubbles).
 #' @param C1 Numeric scalar, amplitude of cosine oscillation.
 #' @param C2 Numeric scalar, amplitude of sine oscillation.
 #' @param tc Numeric scalar, the critical time (singularity point).
@@ -21,7 +22,8 @@
 #'   }
 #' @param T1 Numeric scalar, scale parameter for mode 2 and 3 (default 500).
 #' @param T2 Numeric scalar, scale parameter for mode 3 (default 1990).
-#' @param omega2 Numeric scalar, secondary frequency for mode 2 and 3 (default 0).
+#' @param omega2 Numeric scalar, secondary frequency for mode 2 and 3 (default
+#'   0).
 #' @param omega3 Numeric scalar, tertiary frequency for mode 3 (default 0).
 #'
 #' @return Numeric vector of LPPLS model values at each time point.
@@ -31,7 +33,6 @@
 #' \deqn{LPPLS(t) = A + (t_c - t)^m [B + C_1 \cos(\omega \log(t_c - t)) + C_2 \sin(\omega \log(t_c - t))]}
 #'
 #' This model captures both the power law growth towards a critical time and the
-
 #' log-periodic oscillations that are characteristic of speculative bubbles.
 #'
 #' @references
@@ -81,27 +82,46 @@ eval_lppls <- function(
   }
 
   if (mode == 0) {
-    # Filimonov formulation
+    ## Filimonov formulation
     d <- omega * log(tc - t)
     A + (tc - t)^m * (B + C1 * cos(d) + C2 * sin(d))
 
   } else if (mode == 1) {
-    # First order expansion
-    # Johansen 1999, equation (19)
-    # C2 repurposed as phi
+    ## First order expansion.
+    ## See Johansen 1999 (Predicting Financial Crashes Using Discrete Scale
+    ## Invariance), equation (19).
+    ## See also Johansen et al. (2000), equation (18).
+    ## I am repurposing the variable names from the Filimonov implementation:
+    ## C2 instead of phi
+    ## m instead of beta
     A + (tc - t)^m * (B + C1 * cos(omega * log(tc - t) + C2))
 
   } else if (mode == 2) {
-    # Second order expansion
-    # Johansen 1999, equation (20)
+    ## Second order expansion.
+    ## See Johansen 1999 (Predicting Financial Crashes Using Discrete Scale
+    ## Invariance), equation (20).
+    ## I am repurposing the variable names from the Filimonov implementation:
+    ## A instead of A_2
+    ## B instead of B_2
+    ## C1 instead of C_2
+    ## C2 instead of phi_2
+    ## m instead of beta
+    ## omega instead of omega_1
     tau <- tc - t
     A + tau^m / sqrt(1 + (tau / T1)^(2 * m)) *
       (B + C1 * cos(omega * log(tau) +
                       (omega2 / (2 * m)) * log(1 + (tau / T1)^(2 * m)) + C2))
 
   } else if (mode == 3) {
-    # Third order expansion
-    # Johansen 1999, equation (22)
+    ## Third order expansion.
+    ## See Johansen 1999 (Predicting Financial Crashes Using Discrete Scale Invariance), equation (22).
+    ## I am repurposing the variable names from the Filimonov implementation:
+    ## A instead of A_3
+    ## B instead of B_3
+    ## C1 instead of C_3
+    ## C2 instead of phi_3
+    ## m instead of beta
+    ## omega instead of omega_1
     tau <- tc - t
     A + (
       tau^m / sqrt(1 + (tau / T1)^(2 * m) + (tau / T2)^(4 * m)) *
@@ -154,7 +174,16 @@ SSE <- function(
     stop("'log_p' and 't' must have the same length")
   }
 
-  res <- log_p - eval_lppls(t, par$A, par$B, par$C1, par$C2,
-                        par$tc, par$m, par$omega, mode)
+  res <- log_p - eval_lppls(
+    t,
+    par$A,
+    par$B,
+    par$C1,
+    par$C2,
+    par$tc,
+    par$m,
+    par$omega,
+    mode
+  )
   drop(sum(res^2, na.rm = TRUE))
 }

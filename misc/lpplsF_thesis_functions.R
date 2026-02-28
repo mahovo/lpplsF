@@ -45,7 +45,7 @@ library(rlist) ## Sort list of fits
 ##         vector, must be same length as t
 ## 3) fh, length of forecast horizon. fh = s means forecast period is [T2+1, T2+s], s>1.
 ##      Unit is indexes.
-##      Default is 90 time units.
+##      Default is 30 time units.
 ## 4) hold_out, number of time units for holdout data. 
 ##         That is, the number of data points after T2.
 ## 5) lower, lower limits of parameter filter
@@ -67,7 +67,7 @@ library(rlist) ## Sort list of fits
 ##         The algorithm will search for initial values of m and omega that give B<0.
 ##         If such values are found, the given init values will be overwritten.
 ## 9) o_init, initial omega value for optim()
-##        Omega_init should be in [lower[2], upper[2]]
+##        o_init should be in [lower[2], upper[2]]
 ##        Default is 13, which increases the probability of B<0
 ##        (of course not for random initial values).
 ##        The algorithm will search for initial values of m and omega that give B<0.
@@ -108,13 +108,13 @@ library(rlist) ## Sort list of fits
 ##          Indicate which step of the trace to use for contour plot.
 ##          If the indicated id is too high, 1 will be chosen.
 ## 17) fp, boolean for fit plot.
-## 18) mp, boolean for matrix plot.
+## 18) pp, boolean, whether to generate parameter plot (default FALSE).
+## 19) mp, boolean for matrix plot.
 ##              x-axis is tc, y-axis is sse.
 ##              3 columns of plots for smallest and biggest value of m, and value between the two
 ##              3 columns of plots for smallest and biggest value of omega, and value between the two
-## 19) factr, factr argument for optim control list when using L-BFGS-B. See optim documentation.
-## 20) fb, boolean for printing feedback during execution.
-
+## 20) factr, factr argument for optim control list when using L-BFGS-B. See optim documentation.
+## 21) fb, boolean for printing feedback during execution.
 
 
 ## Outputs:

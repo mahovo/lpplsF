@@ -64,6 +64,6 @@ Useful links:
 
 }
 \author{
-\strong{Maintainer}: Martin Hoshi Vognsen \email{martin@example.com} (\href{https://orcid.org/YOUR-ORCID-ID}{ORCID})
+\strong{Maintainer}: Martin Hoshi Vognsen \email{martinvognsen@gmail.com} (\href{https://orcid.org/0000-0003-4460-7763}{ORCID})
 
 }

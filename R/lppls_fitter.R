@@ -4,82 +4,199 @@
 #' data using the calibration methods from Filimonov & Sornette (2013).
 #' Supports multiple optimization modes and provides diagnostic outputs.
 #'
-#' @param time_ID Numeric vector of time indices (T1:T2 where T1 = 1).
-#' @param log_price Numeric vector of log-prices (must be same length as time_ID).
+#' @param time_ID Numeric vector of time indices (`T1:T2` where `T1 = 1`).
+#' @param log_price Numeric vector of log-prices (must be same length as
+#'   `time_ID`).
 #' @param fh Integer, forecast horizon length in time units (default 30).
-#'   The search for tc extends from T2+1 to T2+fh.
+#'   The search for `tc` extends from `T2+1` to `T2+fh` where `fh>1`.
 #' @param hold_out Integer, number of observations to hold out from the end
-#'   of the sample for validation (default 15).
+#'   of the sample for validation (default 15). That is, the number of data
+#'   points after `T2`.
 #' @param lower Numeric vector of length 4, lower bounds for
-#'   c(m, omega, B, damping). Default: c(0.1, 6, -1e14, 0.8).
+#'   `c(m, omega, B, D)`. Default: `c(0.1, 6, -1e14, 0.8)`.\cr
+#'   Filimonov 2017:\cr
+#'   \eqn{B < 0}, \eqn{D \geq 0.8}, \eqn{0.1 \leq m \leq 0.9}, \eqn{6 \leq \omega \leq 13}.\cr
+#'   NOTE: For `trace_plot` mode 2 and 3 (`bm` and `bo`), lower for `B` should
+#'   be set to the desired minimum value of the B-axis in the contour
+#'   plotting.\cr
+#'   Example:\cr
+#'   \preformatted{lower = c(0.1, 6, -0.03, 0.8)}
+#'   If the optimization algorithm goes below the lower limits at any point
+#'   the lower limit for the B-axis will be extended automatically.
 #' @param upper Numeric vector of length 4, upper bounds for
-#'   c(m, omega, B, damping). Default: c(0.9, 13, -1e-14, 1e6).
-#' @param tc_init Numeric, initial value for critical time tc (default 1000).
-#' @param m_init Numeric, initial value for power law exponent m (default 0.5).
-#' @param o_init Numeric, initial value for frequency omega (default 13).
-#' @param num_searches Integer, number of optimization runs with different
-#'   starting values (default 20).
+#'   `c(m, omega, B, D)`. Default: `c(0.9, 13, -1e-14, 1e6)`.
+#' @param tc_init Numeric, initial value of critical time `tc` for optim()
+#'   (default 1000). `tc_init` should be in \eqn{[T_2+1, T_3]}, where
+#'   \eqn{T_3 = T_2 + s}, and \eqn{s} is the forecast horizon.
+#' @param m_init Numeric, initial value of power law exponent `m` for optim()
+#'   (default 0.5). `m_init` should be in [`lower[1]`, `upper[1]`].
+#'   The algorithm will search for initial values of `m` and `omega` that give
+#'   `B<0`. If such values are found, the given init values will be
+#'   overwritten.
+#' @param o_init Numeric, initial value of frequency `omega` for `optim()`
+#'   (default 13). `o_init` should be in [`lower[2]`, `upper[2]`]. Default is 13,
+#'   which increases the probability of `B<0` (of course not for random initial
+#'   values). The algorithm will search for initial values of `m` and `omega`
+#'   that give `B<0`. If such values are found, the given init values will be
+#'   overwritten.
+#' @param num_searches Integer, number of times to repeat the optimization wrt
+#'   `tc`, `m` and `omega`. First iteration uses given initial values. Any
+#'   subsequent iterations use random initial values.
 #' @param mode Character, optimization mode:
-#'   \itemize{
-#'     \item "F1": Optimize tc, m, omega simultaneously
-#'     \item "F2": Optimize m, omega first (for each tc), then optimize tc
-#'     \item "MPL": Modified Profile Likelihood with confidence intervals
+#'   \describe{
+#'     \item{F1}{Optimize wrt `tc`, `m`, `omega` simultaneously}
+#'     \item{F2}{Optimize wrt `m`, `omega` first (for each `tc`), then optimize
+#'       wrt `tc`}
+#'     \item{MPL}{Modified Profile Likelihood with likelihood intervals}
 #'   }
-#' @param mpl_cutoff Numeric vector of length 3, cutoff levels for MPL
-#'   confidence intervals (default c(0.05, 0.1, 0.5)).
-#' @param mpl_plot Logical, whether to generate MPL plot (default FALSE).
-#' @param fp Logical, whether to generate fit plot (default FALSE).
-#' @param cp Logical, whether to generate contour plot (default FALSE).
-#' @param sp Logical, whether to generate surface plot (default FALSE).
-#' @param tp Numeric vector of length 3, trace plot selectors for
-#'   c(m-omega, B-m, B-omega) (default c(0,0,0)).
-#' @param tp_id Integer, which trace step to use for contour (default 1).
-#' @param pp Logical, whether to generate parameter plot (default FALSE).
-#' @param mp Logical, whether to generate matrix plot (default FALSE).
-#' @param factr Numeric, convergence tolerance for L-BFGS-B (default 1e-08).
-#' @param fb Logical, whether to print feedback during execution (default FALSE).
+#' @param mpl_cutoff Numeric vector of length 3, cutoff levels (\eqn{c}) for
+#'   likelihood interval (default `c(0.05, 0.1, 0.5)`). See Filimonov2017
+#'   equation (39). \eqn{c = 0.05} indicates that values of tc outside the
+#'   likelihood interval have a probability of 0.05.
+#' @param mpl_plot Logical, whether to generate MPL plot (default `FALSE`).
+#' @param fp Logical, whether to generate fit plot (default `FALSE`).
+#' @param cp Logical, whether to generate contour plot (default `FALSE`). `tc`
+#'   value is fixed to the estimate with the lowest objective function value.
+#' @param sp Logical, whether to generate surface plot (default `FALSE`). `tc`
+#'   value is fixed to the estimate with the lowest objective function value.
+#' @param tp Numeric vector of length 3, 0/1 selectors for trace plots.
+#'   Plot 1: `m-omega`, plot 2: `B-m`, plot 3:`B-omega` (default `c(0, 0, 0)`).\cr
+#'   Example: `c(1, 0, 1)` selects trace plot 1 and 3. Traces convergence of
+#'   parameters during optimization of F2 objective function. Only works when
+#'   `mode = "F2"`. The plotted trace path is the one for the value of `tc` that
+#'   produced the smallest value of `SSE2`.\cr
+#'   NOTE: Contour plots in trace plot 2 and 3 only apply to the first step in
+#'   the trace. In a trace plot wrt `B` and `m`, `omega` is not fixed (and vice
+#'   versa for `m` and `omega`).
+#' @param tp_id Integer, which trace step to use for contour plot (default 1).
+#'   If the indicated id is too high, 1 will be chosen.
+#' @param pp Logical, whether to generate parameter plot (default `FALSE`).
+#' @param mp Logical, whether to generate matrix plot (default `FALSE`).
+#'   x-axis is `tc`, y-axis is `SSE`.
+#'   3 columns of plots for smallest and biggest value of `m`, and value between
+#'   the two.
+#'   3 columns of plots for smallest and biggest value of `omega`, and value
+#'   between the two.
+#' @param factr Numeric, convergence tolerance for optim control list when
+#'   using L-BFGS-B. See `optim()` documentation.
+#' @param fb Logical, whether to print feedback during execution (default
+#'   `FALSE`).
 #'
 #' @return A list containing:
 #'   \describe{
-#'     \item{fit}{List with fitted model results. In F1/F2 mode:
-#'       fit[[1]] = best fit parameters;
-#'       fit[[2]] = tibble of all fits sorted by SSE}
+#'     \item{fit}{List with fitted model results. In F1/F2 mode:\cr
+#'       \describe{
+#'         \item{mode = "F1"}{List of fits with random initial values.
+#'           \describe{
+#'             \item{`fit[[1]]`}{
+#'               list of best fit coefficients optimized wrt `m` and `omega`.
+#'             }
+#'             \item{`fit[[2]]`}{
+#'               Tibble of fits with random starting parameters.\cr
+#'               Sorted by objective function value (best at top).\cr
+#'               Output format:\cr
+#'               \preformatted{
+#'                 [
+#'                   list(tc, m, omega, A, B, C1, C2, D, value_min, ID),
+#'                   list(tc, m, omega, A, B, C1, C2, D, value, ID),
+#'                   ...,
+#'                   list(tc, m, omega, A, B, C1, C2, D, value_max, ID)
+#'                 ]
+#'               }
+#'             }
+#'             \item{`fit[[3]]`}{
+#'               If no fits passed the filter: Only unfiltered fits returned.
+#'             }
+#'           }
+#'           `ID` is an identifier indicating the order pre-sorting. These are the
+#'           indexes reported in "out of range" warnings.\cr
+#'         }
+#'         \item{mode = "F2"}{List with two or three elements:
+#'           \describe{
+#'             \item{`fit[[1]]`}{
+#'               List of best fit coefficients optimized wrt `m` and `omega`.
+#'             }
+#'             \item{`fit[[2]]`}{
+#'               If at least one fit passed the filter: Tibble of best fits for
+#'               objective function `F2` for each value of `tc`. Columns are:
+#'               `c(ID, value, tc, m, omega, A, B, C1, C2, damp)`. Sorted by
+#'               objective function value (best at top). For each value of `tc`
+#'               the best fit is picked from `fit2_tmp`.\cr
+#'               If no fits passed the filter: Only unfiltered fits returned.
+#'             }
+#'             \item{`fit[[3]]`}{
+#'               If at least one fit passed the filter: Unfiltered fits returned.\cr
+#'               If no fits passed the filter: Nothing is returned in `fit[[3]]`
+#'             }
+#'             \item{`fit[[4]]`}{
+#'                  List of all tmp fits\cr
+#'                  For each `tc` value, there is a tibble with all fits using random
+#'                    starting points.
+#'             }
+#'           }
+#'         }
+#'       }
+#'     }
 #'     \item{mpl_output}{(MPL mode only) List with likelihood intervals,
-#'       R values, log-likelihoods}
-#'     \item{mpl_plot}{(if requested) ggplot2 object for MPL plot}
+#'       R values, log-likelihoods\cr
+#'         `mpl = list(LI, R, LL, MLL)`\cr
+#'         \describe{
+#'              \item{LI}{vector of 3 elements, one for each value of `mpl_cutoff`.}
+#'              \item{R}{number, relative likelihood}
+#'              \item{LL}{vector of MPL log-likelihoods for each `tc` value}
+#'              \item{MLL}{maximum of `LL`}
+#'              \item{tc_hat_mpl}{`tc` for which `LL` takes it's maximum}
+#'       }
+#'     }
+#'     \item{mpl_plot}{(if requested) ggplot2 object for Modified Profile
+#'       Likelihood plot with likelihood intervals}
 #'     \item{fit_plot}{(if requested) ggplot2 object for fit plot}
-#'     \item{contour_data}{(if requested) List with x, y, z for contour}
+#'     \item{contour_data}{(if requested) List with `x`, `y` and `z` data for contour
+#'       plot of SSE wrt `m` and `omega`.}
 #'     \item{contour_plot}{(if requested) plotly object for contour plot}
 #'     \item{surface_plot}{(if requested) plotly object for surface plot}
-#'     \item{trace_plot_mo}{(if requested) ggplot2 object for m-omega trace}
-#'     \item{trace_plot_bm}{(if requested) ggplot2 object for B-m trace}
-#'     \item{trace_plot_bo}{(if requested) ggplot2 object for B-omega trace}
+#'     \item{trace_plot_mo}{(if requested) ggplot2 object containing trace plot
+#'       for `m` and `omega`}
+#'     \item{trace_plot_bm}{(if requested) ggplot2 object containing trace plot
+#'       for `B` and `m`}
+#'     \item{trace_plot_bo}{(if requested) ggplot2 object for containing trace
+#'       plot for `B` and `omega`}
 #'     \item{param_plot}{(if requested) ggplot2 object for parameter plot}
 #'     \item{matrix_plot}{(if requested) ggplot2 object for matrix plot}
 #'     \item{out_of_range_tracker}{List tracking which fits had out-of-range
-#'       B or damping values}
+#'       `B` or damping values\cr
+#'       \describe{
+#'         \item{F1 mode}{List of random iteration IDs what resulted in
+#'           out-of-range parameters}
+#'         \item{F2 mode}{List of random tc value IDs and iteration IDs what
+#'           resulted in out-of-range parameters.\cr
+#'           `tc` value ID start with 1 for `T2+1`. That is, the first time step
+#'            after the modelling period, or the first time step of the
+#'            forecasting horizon.}
+#'       }
+#'     }
 #'   }
 #'
 #' @details
 #' The LPPLS model is:
 #' \deqn{y(t) = A + (t_c - t)^m [B + C_1 \cos(\omega \log(t_c - t)) + C_2 \sin(\omega \log(t_c - t))]}
 #'
-#' The model has 7 parameters: A, B, C1, C2 (linear) and tc, m, omega (nonlinear).
+#' The model has 7 parameters: \eqn{A}, \eqn{B}, \eqn{C_1}, \eqn{C_2} (linear) and \eqn{t_c}, \eqn{m}, \eqn{\omega} (nonlinear).
 #' The Filimonov calibration exploits this structure by solving for the linear
 #' parameters analytically given the nonlinear ones.
 #'
-#' **Mode F1**: Optimizes all nonlinear parameters (tc, m, omega) simultaneously
+#' **Mode F1**: Optimizes all nonlinear parameters `c(tc, m, omega)` simultaneously
 #' using L-BFGS-B with multiple random starting points.
 #'
 #' **Mode F2**: A two-stage procedure:
 #' \enumerate{
-#'   \item For each candidate tc value, optimize (m, omega)
-#'   \item Select the tc that minimizes the overall SSE
+#'   \item For each candidate `tc` value, optimize `c(m, omega)`
+#'   \item Select the `tc` that minimizes the overall SSE
 #' }
 #' This is more robust than F1 for ill-conditioned problems.
 #'
 #' **Mode MPL**: Modified Profile Likelihood inference from Filimonov et al. (2017).
-#' Provides likelihood-based confidence intervals for tc.
+#' Provides likelihood-based confidence intervals for `tc`.
 #'
 #' @references
 #' Filimonov, V., & Sornette, D. (2013). A stable and robust calibration scheme
