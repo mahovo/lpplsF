@@ -4,9 +4,7 @@
 #' data using the calibration methods from Filimonov & Sornette (2013).
 #' Supports multiple optimization modes and provides diagnostic outputs.
 #'
-#' @param time_ID Numeric vector of time indices (`T1:T2` where `T1 = 1`).
-#' @param log_price Numeric vector of log-prices (must be same length as
-#'   `time_ID`).
+#' @param log_price Numeric vector of log-prices.
 #' @param fh Integer, forecast horizon length in time units (default 30).
 #'   The search for `tc` extends from `T2+1` to `T2+fh` where `fh>1`.
 #' @param hold_out Integer, number of observations to hold out from the end
@@ -218,7 +216,7 @@
 #'                    true_params$omega) + rnorm(200, 0, 0.01)
 #'
 #' # Fit model
-#' result <- fit_lppls(time_ID = t, log_price = log_p,
+#' result <- fit_lppls(log_price = log_p,
 #'                  fh = 100, hold_out = 0,
 #'                  tc_init = 250, mode = "F2",
 #'                  num_searches = 10, fp = TRUE)
@@ -236,7 +234,6 @@
 #' @importFrom stats optim runif
 #' @export
 fit_lppls <- function(
-  time_ID,
   log_price,
   fh = 30,
   hold_out = 15,
@@ -260,11 +257,6 @@ fit_lppls <- function(
   fb = FALSE
 ) {
 
-  # Input validation
-  if (length(time_ID) != length(log_price)) {
-    stop("time_ID and log_price vectors must have the same length.")
-  }
-
   if (!mode %in% c("F1", "F2", "MPL")) {
     stop("mode must be one of: 'F1', 'F2', 'MPL'")
   }
@@ -276,10 +268,12 @@ fit_lppls <- function(
   start_time <- Sys.time()
 
   # Separate modeling and holdout data
-  n_total <- length(time_ID)
+  n_total <- length(log_price)
   n_model <- n_total - hold_out
 
-  t <- time_ID[1:n_model]
+  time_id <- 1:n_total
+
+  t <- time_id[1:n_model]
   log_p <- log_price[1:n_model]
   n <- length(t)
 
@@ -662,7 +656,7 @@ fit_lppls <- function(
   if (fp) {
     fit_plot_obj <- create_fit_plot(
       fit = fit[[1]],
-      time_ID = time_ID,
+      time_id = time_id,
       log_price = log_price,
       n_model = n_model
     )

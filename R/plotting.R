@@ -306,8 +306,8 @@ create_mpl_plot <- function(mpl_output, fit, n, fh) {
 #'
 #' @keywords internal
 #' @noRd
-create_fit_plot <- function(fit, time_ID, log_price, n_model) {
-  plot_data <- data.frame(ID = time_ID, log_p = log_price)
+create_fit_plot <- function(fit, time_id, log_price, n_model) {
+  plot_data <- data.frame(ID = time_id, log_p = log_price)
 
   ggplot2::ggplot(plot_data, ggplot2::aes(x = ID, y = log_p)) +
     ggplot2::geom_line(color = "royalblue1") +
@@ -667,7 +667,7 @@ create_trace_plot <- function(selector, opt_trace, lower, upper,
 #' @examples
 #' \dontrun{
 #' # After fitting a model
-#' result <- fit_lppls(time_ID = t, log_price = log_p, mode = "F2")
+#' result <- fit_lppls(log_price = log_p, mode = "F2")
 #' p <- fit_plot(result$fit[[1]], t, log_p)
 #' print(p)
 #' }

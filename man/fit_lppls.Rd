@@ -5,7 +5,6 @@
 \title{Fit LPPLS Model to Financial Time Series}
 \usage{
 fit_lppls(
-  time_ID,
   log_price,
   fh = 30,
   hold_out = 15,
@@ -30,10 +29,7 @@ fit_lppls(
 )
 }
 \arguments{
-\item{time_ID}{Numeric vector of time indices (\code{T1:T2} where \code{T1 = 1}).}
-
-\item{log_price}{Numeric vector of log-prices (must be same length as
-\code{time_ID}).}
+\item{log_price}{Numeric vector of log-prices.}
 
 \item{fh}{Integer, forecast horizon length in time units (default 30).
 The search for \code{tc} extends from \code{T2+1} to \code{T2+fh} where \code{fh>1}.}
@@ -263,7 +259,7 @@ log_p <- eval_lppls(t, true_params$A, true_params$B, true_params$C1,
                    true_params$omega) + rnorm(200, 0, 0.01)
 
 # Fit model
-result <- fit_lppls(time_ID = t, log_price = log_p,
+result <- fit_lppls(log_price = log_p,
                  fh = 100, hold_out = 0,
                  tc_init = 250, mode = "F2",
                  num_searches = 10, fp = TRUE)

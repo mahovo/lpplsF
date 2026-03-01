@@ -14,17 +14,10 @@ generate_bubble_data <- function(n = 200, tc = 250, noise_sd = 0.01, seed = 123)
   list(t = t, log_p = log_p, true_params = true_params)
 }
 
-test_that("fit_lppls validates input lengths", {
-  expect_error(
-    fit_lppls(time_ID = 1:100, log_price = 1:50),
-    "time_ID and log_price vectors must have the same length"
-  )
-})
-
 test_that("fit_lppls validates mode parameter", {
   data <- generate_bubble_data(n = 50)
   expect_error(
-    fit_lppls(time_ID = data$t, log_price = data$log_p, mode = "invalid"),
+    fit_lppls(log_price = data$log_p, mode = "invalid"),
     "mode must be one of: 'F1', 'F2', 'MPL'"
   )
 })
@@ -32,7 +25,7 @@ test_that("fit_lppls validates mode parameter", {
 test_that("fit_lppls validates bound vectors", {
   data <- generate_bubble_data(n = 50)
   expect_error(
-    fit_lppls(time_ID = data$t, log_price = data$log_p, lower = c(0.1, 6)),
+    fit_lppls(log_price = data$log_p, lower = c(0.1, 6)),
     "lower and upper must be vectors of length 4"
   )
 })
@@ -42,7 +35,6 @@ test_that("fit_lppls returns expected structure in F1 mode", {
 
   data <- generate_bubble_data(n = 100, tc = 150)
   result <- fit_lppls(
-    time_ID = data$t,
     log_price = data$log_p,
     fh = 30,
     hold_out = 10,
@@ -71,7 +63,6 @@ test_that("fit_lppls returns expected structure in F2 mode", {
 
   data <- generate_bubble_data(n = 100, tc = 150)
   result <- fit_lppls(
-    time_ID = data$t,
     log_price = data$log_p,
     fh = 20,
     hold_out = 10,
@@ -102,7 +93,6 @@ test_that("fit_lppls parameters are within specified bounds", {
   upper <- c(0.9, 13, -1e-14, 1e6)
 
   result <- fit_lppls(
-    time_ID = data$t,
     log_price = data$log_p,
     fh = 20,
     hold_out = 10,
@@ -137,7 +127,6 @@ test_that("fit_lppls recovers true parameters from clean data", {
   data <- generate_bubble_data(n = 150, tc = 200, noise_sd = 0.001)
 
   result <- fit_lppls(
-    time_ID = data$t,
     log_price = data$log_p,
     fh = 80,
     hold_out = 0,
@@ -164,7 +153,6 @@ test_that("fit_lppls generates fit plot when requested", {
 
   data <- generate_bubble_data(n = 100, tc = 150)
   result <- fit_lppls(
-    time_ID = data$t,
     log_price = data$log_p,
     fh = 20,
     hold_out = 10,
@@ -184,7 +172,6 @@ test_that("fit_lppls out_of_range_tracker is populated correctly", {
 
   data <- generate_bubble_data(n = 100, tc = 150)
   result <- fit_lppls(
-    time_ID = data$t,
     log_price = data$log_p,
     fh = 20,
     hold_out = 10,
@@ -203,12 +190,11 @@ test_that("fit_lppls out_of_range_tracker is populated correctly", {
 test_that("fit_lppls handles edge case of short time series", {
   skip_on_cran()
 
-  t <- 1:30
+  set.seed(42)
   log_p <- log(cumsum(1 + rnorm(30, 0.01, 0.01)))
 
   # Should run without error, though results may not be meaningful
   result <- fit_lppls(
-    time_ID = t,
     log_price = log_p,
     fh = 10,
     hold_out = 5,
