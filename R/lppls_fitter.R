@@ -8,7 +8,7 @@
 #' @param fh Integer, forecast horizon length in time units (default 30).
 #'   The search for `tc` extends from `T2+1` to `T2+fh` where `fh>1`.
 #' @param hold_out Integer, number of observations to hold out from the end
-#'   of the sample for validation (default 15). That is, the number of data
+#'   of the sample for validation (default 0). That is, the number of data
 #'   points after `T2`.
 #' @param lower Numeric vector of length 4, lower bounds for
 #'   `c(m, omega, B, D)`. Default: `c(0.1, 6, -1e14, 0.8)`.\cr
@@ -236,7 +236,7 @@
 fit_lppls <- function(
   log_price,
   fh = 30,
-  hold_out = 15,
+  hold_out = 0,
   lower = c(0.1, 6, -1e14, 0.8),
   upper = c(0.9, 13, -1e-14, 1e6),
   tc_init = 1000,
@@ -290,8 +290,17 @@ fit_lppls <- function(
     if (tc <= max(t)) return(Inf)
 
     beta <- beta_calculator(log_p, t, tc, m, omega)
-    fitted <- eval_lppls(t, beta["A"], beta["B"], beta["C1"], beta["C2"],
-                         tc, m, omega, mode = 0)
+    fitted <- eval_lppls(
+      t,
+      beta["A"],
+      beta["B"],
+      beta["C1"],
+      beta["C2"],
+      tc,
+      m,
+      omega,
+      mode = 0
+    )
     sum((log_p - fitted)^2, na.rm = TRUE)
   }
 

@@ -112,7 +112,7 @@ calculate_damping <- function(m, B, omega, C1, C2) {
 #' @keywords internal
 #' @noRd
 create_beta_calculator <- function() {
-  # Define symbolic variables for matrix elements
+  ## Symbolic variables for X'X matrix elements
   xx11 <- symengine::Symbol("xx11")
   xx12 <- symengine::Symbol("xx12")
   xx13 <- symengine::Symbol("xx13")
@@ -134,7 +134,7 @@ create_beta_calculator <- function() {
   xy3 <- symengine::Symbol("xy3")
   xy4 <- symengine::Symbol("xy4")
 
-  # Build X'X matrix
+  ## Build X'X matrix
   XX <- symengine::Matrix(
     c(xx11, xx12, xx13, xx14,
       xx21, xx22, xx23, xx24,
@@ -144,14 +144,13 @@ create_beta_calculator <- function() {
     nrow = 4
   )
 
-  # Build X'y vector
+  ## Build X'y vector
   Xy <- symengine::Vector(xy1, xy2, xy3, xy4)
 
-  # Solve for beta = (X'X)^{-1} X'y
-
+  ## Solve for beta = (X'X)^{-1} X'y
   beta <- symengine::solve(XX, Xy)
 
-  # Create efficient visitor functions for each parameter
+  ## Create efficient visitor functions for each parameter
   args <- c(xx11, xx12, xx13, xx14,
             xx21, xx22, xx23, xx24,
             xx31, xx32, xx33, xx34,
@@ -163,7 +162,8 @@ create_beta_calculator <- function() {
   C1_func <- symengine::DoubleVisitor(beta[3], args = args)
   C2_func <- symengine::DoubleVisitor(beta[4], args = args)
 
-  # Return the calculator function
+  ## Return the calculator function
+  ## Calculates values of liniear parameters, given nonlinear estimates as inputs.
   function(log_p, t, tc, m, omega) {
     force(tc)
     force(m)
