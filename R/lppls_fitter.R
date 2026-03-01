@@ -269,13 +269,12 @@ fit_lppls <- function(
 
   # Separate modeling and holdout data
   n_total <- length(log_price)
-  n_model <- n_total - hold_out
+  n <- n_total - hold_out
 
   time_id <- 1:n_total
 
-  t <- time_id[1:n_model]
-  log_p <- log_price[1:n_model]
-  n <- length(t)
+  t <- time_id[1:n]
+  log_p <- log_price[1:n]
 
   # Create beta calculator (uses symbolic math for efficiency)
   beta_calculator <- create_beta_calculator()
@@ -658,7 +657,7 @@ fit_lppls <- function(
       fit = fit[[1]],
       time_id = time_id,
       log_price = log_price,
-      n_model = n_model
+      n_model = n
     )
   }
 
