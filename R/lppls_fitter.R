@@ -267,7 +267,7 @@ fit_lppls <- function(
 
   start_time <- Sys.time()
 
-  # Separate modeling and holdout data
+  ## Separate modeling and holdout data
   n_total <- length(log_price)
   n <- n_total - hold_out
 
@@ -276,17 +276,19 @@ fit_lppls <- function(
   t <- time_id[1:n]
   log_p <- log_price[1:n]
 
-  # Create beta calculator (uses symbolic math for efficiency)
+  ## Create beta calculator (uses symbolic math for efficiency)
   beta_calculator <- create_beta_calculator()
 
-  # Internal SSE functions
-  # SSE with all nonlinear parameters as vector
+  ## Internal Sum of Squared Errors functions
+  ##
+  ## SSE with all nonlinear parameters as vector
+  ## par vector is {tc, m, omega}, used as initial parameter values in optim().
   SSE1 <- function(par, log_p, t) {
     tc <- par[1]
     m <- par[2]
     omega <- par[3]
 
-    # Ensure tc > max(t)
+    ## Ensure tc > max(t)
     if (tc <= max(t)) return(Inf)
 
     beta <- beta_calculator(log_p, t, tc, m, omega)
@@ -304,28 +306,48 @@ fit_lppls <- function(
     sum((log_p - fitted)^2, na.rm = TRUE)
   }
 
-  # SSE with fixed tc
+  ## SSE with fixed tc
+  ## par vector is {m, omega}, used as initial parameter values in optim().
   SSE2 <- function(par, tc, log_p, t) {
     m <- par[1]
     omega <- par[2]
 
     beta <- beta_calculator(log_p, t, tc, m, omega)
-    fitted <- eval_lppls(t, beta["A"], beta["B"], beta["C1"], beta["C2"],
-                         tc, m, omega, mode = 0)
+    fitted <- eval_lppls(
+      t,
+      beta["A"],
+      beta["B"],
+      beta["C1"],
+      beta["C2"],
+      tc,
+      m,
+      omega,
+      mode = 0
+    )
     sum((log_p - fitted)^2, na.rm = TRUE)
   }
 
-  # SSE with fixed m and omega
+  ## SSE with fixed m and omega
+  ## par is tc, used as initial parameter value in optim().
   SSE3 <- function(tc, m, omega, log_p, t) {
     if (tc <= max(t)) return(Inf)
 
     beta <- beta_calculator(log_p, t, tc, m, omega)
-    fitted <- eval_lppls(t, beta["A"], beta["B"], beta["C1"], beta["C2"],
-                         tc, m, omega, mode = 0)
+    fitted <- eval_lppls(
+      t,
+      beta["A"],
+      beta["B"],
+      beta["C1"],
+      beta["C2"],
+      tc,
+      m,
+      omega,
+      mode = 0
+    )
     sum((log_p - fitted)^2, na.rm = TRUE)
   }
 
-  # Initialize outputs
+  ## Initialize outputs
   fit <- list()
   mpl_output <- NULL
   mpl_plot_obj <- NULL
@@ -340,13 +362,11 @@ fit_lppls <- function(
   matrix_plot_obj <- NULL
   out_of_range_tracker <- list(B = list(), D = list())
 
-  # =========================================================================
-  # MODE F1: Simultaneous optimization of tc, m, omega
-  # =========================================================================
+  ## MODE F1: Simultaneous optimization of tc, m, omega ======================
   if (mode == "F1") {
     if (fb) message("Mode: F1 - Simultaneous optimization")
 
-    # Initialize results tibble
+    ## Initialize results tibble
     fit_tbl <- tibble::tibble(
       tc = numeric(num_searches),
       m = numeric(num_searches),
@@ -363,7 +383,7 @@ fit_lppls <- function(
     for (i in seq_len(num_searches)) {
       if (fb) message(sprintf("Iteration %d/%d...", i, num_searches))
 
-      # Set initial values
+      ## Set initial values
       if (i == 1) {
         init_par <- c(tc_init, m_init, o_init)
       } else {
@@ -374,7 +394,7 @@ fit_lppls <- function(
         )
       }
 
-      # Optimize
+      ## Optimize
       opt_result <- stats::optim(
         par = init_par,
         fn = SSE1,
@@ -386,17 +406,22 @@ fit_lppls <- function(
         control = list(factr = factr)
       )
 
-      # Calculate linear coefficients
-      beta_vals <- beta_calculator(log_p, t, opt_result$par[1],
-                                   opt_result$par[2], opt_result$par[3])
+      ## Calculate linear coefficients
+      beta_vals <- beta_calculator(
+        log_p,
+        t,
+        opt_result$par[1],
+        opt_result$par[2],
+        opt_result$par[3]
+      )
 
-      # Calculate damping
+      ## Calculate damping
       damp <- calculate_damping(
         opt_result$par[2], beta_vals["B"],
         opt_result$par[3], beta_vals["C1"], beta_vals["C2"]
       )
 
-      # Track out-of-range values
+      ## Track out-of-range values
       if (beta_vals["B"] >= upper[3]) {
         out_of_range_tracker$B[[length(out_of_range_tracker$B) + 1]] <- i
       }
@@ -404,7 +429,7 @@ fit_lppls <- function(
         out_of_range_tracker$D[[length(out_of_range_tracker$D) + 1]] <- i
       }
 
-      # Store results
+      ## Store results
       fit_tbl[i, ] <- list(
         tc = opt_result$par[1],
         m = opt_result$par[2],
@@ -419,23 +444,30 @@ fit_lppls <- function(
       )
     }
 
-    # Sort by SSE value
+    ## Sort by SSE value
     fit_tbl <- dplyr::arrange(fit_tbl, value)
     fit[[2]] <- fit_tbl
-    fit[[1]] <- as.list(fit_tbl[1, ])
+    fit[[1]] <- as.list(fit_tbl[1, ]) ## fit[[2]] is a tibble, fit is a list
 
     if (fb) message("F1 optimization complete")
   }
 
-  # =========================================================================
-  # MODE F2/MPL: Two-stage optimization
-  # =========================================================================
-  if (mode == "F2" || mode == "MPL") {
+  ## MODE F2/MPL: Two-stage optimization =====================================
+  if (mode == "F2" || mode == "MPL") { ## "F2"-mode output needed for "MPL"-mode
     if (fb) message("Mode: F2/MPL - Two-stage optimization")
 
-    # Storage for results at each tc value
+    ## List of fits wrt m and omega for a single fixed value of tc.
+    ## This is the combination of m and omega that minimizes SSE2.
+    ## For each value of tc, fit2 contains a list of all fits with random
+    ## initial values.
+    ## For each value of tc_k, fit2 stores the contents of fit2_tmp in
+    ## iteration k.
     fit2 <- list()
+
     fit2_filtered <- list()
+
+    ## Initialize List with best fit optimized wrt m and omega for each value of
+    ## tc. I.e. pick the best from fit2 for each tc.
     fit2_best_for_each_tc <- tibble::tibble(
       ID = integer(fh),
       value = numeric(fh),
@@ -448,6 +480,8 @@ fit_lppls <- function(
       C2 = numeric(fh),
       D = numeric(fh)
     )
+
+    ## Initialize fit2_best_for_each_tc filtered for B < 0
     fit2_best_for_each_tc_filtered <- tibble::tibble(
       ID = integer(0),
       value = numeric(0),
@@ -463,7 +497,7 @@ fit_lppls <- function(
 
     fit[[4]] <- list()
 
-    # Loop over each candidate tc value
+    ## Loop over each candidate tc value
     for (k in seq_len(fh)) {
       tc_k <- n + k
 
@@ -471,7 +505,7 @@ fit_lppls <- function(
         message(sprintf("Processing tc = %d (%d/%d)", tc_k, k, fh))
       }
 
-      # Initialize results for this tc value
+      ## Initialize results for this tc value
       fit2_tmp <- tibble::tibble(
         ID = integer(num_searches),
         value = numeric(num_searches),
@@ -485,13 +519,14 @@ fit_lppls <- function(
         D = numeric(num_searches)
       )
 
+      ## Use for trace plot
       opt2_counts <- list()
 
       for (i in seq_len(num_searches)) {
-        # Set seed for reproducibility (matches trace plot)
+        ## Set seed for reproducibility (matches trace plot)
         set.seed(i)
 
-        # Initial values
+        ## Initial values
         if (i == 1) {
           init_par <- c(m_init, o_init)
         } else {
@@ -501,7 +536,7 @@ fit_lppls <- function(
           )
         }
 
-        # Optimize m and omega for fixed tc
+        ## Optimize m and omega for fixed tc
         opt_result <- stats::optim(
           par = init_par,
           fn = SSE2,
@@ -516,17 +551,25 @@ fit_lppls <- function(
 
         if (any(tp != 0)) opt2_counts[[i]] <- opt_result$counts[["function"]]
 
-        # Calculate linear coefficients
-        beta_vals <- beta_calculator(log_p, t, tc_k,
-                                     opt_result$par[1], opt_result$par[2])
-
-        # Calculate damping
-        damp <- calculate_damping(
-          opt_result$par[1], beta_vals["B"],
-          opt_result$par[2], beta_vals["C1"], beta_vals["C2"]
+        ## Calculate linear coefficients
+        beta_vals <- beta_calculator(
+          log_p,
+          t,
+          tc_k,
+          opt_result$par[1],
+          opt_result$par[2]
         )
 
-        # Track out-of-range
+        ## Calculate damping
+        damp <- calculate_damping(
+          opt_result$par[1],
+          beta_vals["B"],
+          opt_result$par[2],
+          beta_vals["C1"],
+          beta_vals["C2"]
+        )
+
+        ## Track out-of-range
         if (beta_vals["B"] >= upper[3]) {
           out_of_range_tracker$B[[length(out_of_range_tracker$B) + 1]] <-
             list(tc_num = k, rand_iter_num = i)
@@ -536,7 +579,7 @@ fit_lppls <- function(
             list(tc_num = k, rand_iter_num = i)
         }
 
-        # Store results
+        ## Add list of fitted coefficients to list of fits
         fit2_tmp[i, ] <- list(
           ID = i,
           value = opt_result$value,
@@ -551,18 +594,21 @@ fit_lppls <- function(
         )
       }
 
-      # Store all fits for this tc
+      ## Store all fits for this tc
       fit[[4]][[k]] <- fit2_tmp
 
-      # Sort and filter
+      ## Sort list by value of objective function F2.
+      ## Keep all fits for tc_k in a list.
+      ## Filter out results where B >= 0.
+      ## Then sort by SSE value (smallest at top).
       fit2[[k]] <- dplyr::arrange(fit2_tmp, value)
       fit2_filtered[[k]] <- dplyr::filter(fit2_tmp, B < upper[3])
       fit2_filtered[[k]] <- dplyr::arrange(fit2_filtered[[k]], value)
 
-      # Keep best fit for this tc
+      ## Keep best fit for this tc
       fit2_best_for_each_tc[k, ] <- fit2[[k]][1, ]
 
-      # Add to filtered list if any fits passed filter
+      ## Add to filtered list if any fits passed filter
       if (nrow(fit2_filtered[[k]]) > 0) {
         fit2_best_for_each_tc_filtered <- rbind(
           fit2_best_for_each_tc_filtered,
@@ -571,13 +617,13 @@ fit_lppls <- function(
       }
     }
 
-    # Sort results across all tc values
+    ## Sort results across all tc values
     fit2_best_for_each_tc <- dplyr::arrange(fit2_best_for_each_tc, value)
     fit2_best_for_each_tc_filtered <- dplyr::arrange(
       fit2_best_for_each_tc_filtered, value
     )
 
-    # Select best fit (prefer filtered if available)
+    ## Select best fit (prefer filtered if available)
     if (nrow(fit2_best_for_each_tc_filtered) == 0) {
       fit2_best <- fit2_best_for_each_tc[1, ]
       warning("No fits passed the filter. Using unfiltered best fit.")
@@ -585,7 +631,7 @@ fit_lppls <- function(
       fit2_best <- fit2_best_for_each_tc_filtered[1, ]
     }
 
-    # Final optimization of tc given best m and omega
+    ## Final optimization of tc given best m and omega
     if (fb) message("Optimizing tc given best m and omega...")
 
     opt_final <- stats::optim(
@@ -600,15 +646,25 @@ fit_lppls <- function(
       method = "Brent"
     )
 
-    # Calculate final coefficients
-    beta_vals <- beta_calculator(log_p, t, opt_final$par,
-                                 fit2_best$m, fit2_best$omega)
-    damp <- calculate_damping(
-      fit2_best$m, beta_vals["B"],
-      fit2_best$omega, beta_vals["C1"], beta_vals["C2"]
+    ## Calculate final coefficients
+    beta_vals <- beta_calculator(
+      log_p,
+      t,
+      opt_final$par,
+      fit2_best$m,
+      fit2_best$omega
     )
 
-    # Store final results
+    damp <- calculate_damping(
+      fit2_best$m,
+      beta_vals["B"],
+      fit2_best$omega,
+      beta_vals["C1"],
+      beta_vals["C2"]
+    )
+
+    ## Final results
+    ## First element is the best fit wrt tc. This is the tc that minimizes SSE3.
     fit[[1]] <- list(
       tc = opt_final$par,
       m = fit2_best$m,
@@ -626,14 +682,13 @@ fit_lppls <- function(
       fit[[3]] <- fit2_best_for_each_tc
     } else {
       fit[[2]] <- fit2_best_for_each_tc
+      if (fb) message("No fits passed the filter. Only unfiltered fits returned.\n")
     }
 
     if (fb) message("F2 optimization complete")
   }
 
-  # =========================================================================
-  # MPL: Modified Profile Likelihood (additional calculations)
-  # =========================================================================
+  ## MPL: Modified Profile Likelihood (additional calculations) ==============
   if (mode == "MPL") {
     if (fb) message("Computing Modified Profile Likelihood...")
 
@@ -656,11 +711,9 @@ fit_lppls <- function(
     }
   }
 
-  # =========================================================================
-  # Generate optional plots
-  # =========================================================================
+  ## Generate optional plots =================================================
 
-  # Fit plot
+  ## Fit plot
   if (fp) {
     fit_plot_obj <- create_fit_plot(
       fit = fit[[1]],
@@ -670,7 +723,7 @@ fit_lppls <- function(
     )
   }
 
-  # Contour and surface plots
+  ## Contour and surface plots
   if (cp || sp) {
     contour_result <- create_contour_data(
       fit = fit[[1]],
@@ -691,12 +744,12 @@ fit_lppls <- function(
     }
   }
 
-  # Parameter plot
+  ## Parameter plot
   if (pp && length(fit) >= 2) {
     param_plot_obj <- create_param_plot(fit)
   }
 
-  # Matrix plot
+  ## Matrix plot
   if (mp && (mode == "F2" || mode == "MPL")) {
     matrix_plot_obj <- create_matrix_plot(
       n = n,
@@ -709,15 +762,13 @@ fit_lppls <- function(
     )
   }
 
-  # =========================================================================
-  # Trace plots (F2/MPL mode only)
-  # =========================================================================
+  ## Trace plots (F2/MPL mode only) ==========================================
   if (any(tp != 0)) {
     if (mode == "F2" || mode == "MPL") {
       tc_val <- fit[[1]]$tc
       need_B <- (tp[2] == 1 || tp[3] == 1)
 
-      # Replay optimization at best fit's tc, tracing parameter path
+      ## Replay optimization at best fit's tc, tracing parameter path
       set.seed(fit2_best$ID)
       s <- seq_len(opt2_counts[[fit2_best$ID]])
 
@@ -743,7 +794,7 @@ fit_lppls <- function(
         opt_i
       })
 
-      # Prepend initial point
+      ## Prepend initial point
       if (need_B) {
         init_B <- unname(beta_calculator(log_p, t, tc_val, m_init, o_init)["B"])
         opt_trace <- matrix(c(m_init, o_init, init_B, opt_trace),
@@ -753,7 +804,7 @@ fit_lppls <- function(
                             byrow = FALSE, nrow = 2)
       }
 
-      # Generate requested trace plots
+      ## Generate requested trace plots
       if (tp[1] == 1) {
         trace_plot_mo <- create_trace_plot(
           1, opt_trace, lower, upper, SSE2, beta_calculator,
@@ -777,11 +828,11 @@ fit_lppls <- function(
     }
   }
 
-  # Report timing
+  ## Report timing
   end_time <- Sys.time()
   if (fb) message(sprintf("Total time: %.2f seconds", end_time - start_time))
 
-  # Report out-of-range warnings
+  ## Report out-of-range warnings
   num_estimates <- ifelse(mode == "F1", num_searches, fh * num_searches)
   if (length(out_of_range_tracker$B) > 0) {
     warning(sprintf("%d of %d estimates had B out of range.",
@@ -792,7 +843,7 @@ fit_lppls <- function(
                     length(out_of_range_tracker$D), num_estimates))
   }
 
-  # Return results
+  ## Return results
   list(
     fit = fit,
     mpl_output = mpl_output,

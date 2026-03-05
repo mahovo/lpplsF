@@ -427,7 +427,7 @@ lpplsF_thesis <- function(time_ID, log_price, fh = 30, hold_out = 15, lower = c(
     b <- beta[2]
     c1 <- beta[3]
     c2 <- beta[4]
-    log_p - (
+    log_p[1:(length(t))] - (
       a + (tc - t)^m * (b + c1 * cos(omega * log(tc - t)) + c2 * sin(omega * log(tc - t)))
     )
   }
@@ -638,7 +638,7 @@ lpplsF_thesis <- function(time_ID, log_price, fh = 30, hold_out = 15, lower = c(
       ## m * abs(B) / (omega * sqrt(C1^2 + C2^2))
       damp <- opt_tmp$par[[1]] * abs(beta_vals[2]) / (opt_tmp$par[[2]] * sqrt(beta_vals[3]^2 + beta_vals[4]^2))
       #if(damp <= lower[4]) {warning(paste0("F2, iteration 1: D out of range (", 1, ").\n"))}
-      if(damp <= lower[4]) {out_of_range_tracker$D[[length(out_of_range_tracker$D) + 1]] = list(tc_num = k, rand_iter_num = 1)}
+      if(damp < lower[4]) {out_of_range_tracker$D[[length(out_of_range_tracker$D) + 1]] = list(tc_num = k, rand_iter_num = 1)}
       
       ## Add list of fitted coefficients to list of fits
       fit2_tmp <- tibble(ID = 1, value = opt_tmp$value, tc = tc_k, m = opt_tmp$par[[1]], omega = opt_tmp$par[[2]], A = beta_vals[1], B = beta_vals[2], C1 = beta_vals[3], C2 = beta_vals[4], D = damp)
@@ -859,14 +859,16 @@ lpplsF_thesis <- function(time_ID, log_price, fh = 30, hold_out = 15, lower = c(
       n = length(t)
       p = 6 ## length(Psi) = 6
       m = Psi[1]; omega = Psi[2]; a = Psi[3]; b = Psi[4]; c1 = Psi[5]; c2 = Psi[6];
-      LPPLS <- rep(0, n)
+      # LPPLS <- rep(0, n)
       H <- matrix(0, nrow = p, ncol = p)
       
       for(i in 1:n) {
         tau = tc - t[i]
-        LPPLS[i] = a + tau^m * (b + c1 * cos(omega * log(tau)) + c2 * sin(omega * log(tau)));
-        res = (log_p[i] - LPPLS[i])
-        
+        # LPPLS[i] = a + tau^m * (b + c1 * cos(omega * log(tau)) + c2 * sin(omega * log(tau)));
+        LPPLS = a + tau^m * (b + c1 * cos(omega * log(tau)) + c2 * sin(omega * log(tau)));
+        # res = (log_p[i] - LPPLS[i])
+        res = (log_p[i] - LPPLS)
+
         ## Second derivative of LPPLS wrt:
         ## (m, m)
         H[1,1] = H[1,1] + res * tau^m * log(tau)^2 * (b + c1 * cos(omega * log(tau)) + c2 * sin(omega * log(tau)))

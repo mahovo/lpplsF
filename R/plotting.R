@@ -165,12 +165,14 @@ compute_mpl_loglik <- function(tc, tc_hat, Psi_hat_tc, Psi_hat, log_p, t) {
 #' @noRd
 compute_X_matrix <- function(Psi, tc, t) {
   n <- length(t)
-  p <- 6
+  p <- 6 ## length(Psi) = 6
   X <- matrix(0, nrow = n, ncol = p)
 
+
+  ## Psi = (m, omega, a, b, c1, c2)
   m <- Psi[1]
   omega <- Psi[2]
-  # a <- Psi[3]  # unused in gradient
+  # a <- Psi[3]  ## unused in gradient
   b <- Psi[4]
   c1 <- Psi[5]
   c2 <- Psi[6]
@@ -182,17 +184,20 @@ compute_X_matrix <- function(Psi, tc, t) {
     cos_term <- cos(omega * log_tau)
     sin_term <- sin(omega * log_tau)
 
-    # d/dm
+    ## Gradient for single t_i
+    ## Filimonov2017, equation (B16)
+
+    ## d LPPLS(t_i; tc, psi) / d m
     X[i, 1] <- tau_m * log_tau * (b + c1 * cos_term + c2 * sin_term)
-    # d/domega
+    ## d LPPLS(t_i; tc, psi) / d omega
     X[i, 2] <- tau_m * log_tau * (-c1 * sin_term + c2 * cos_term)
-    # d/da
+    ## d LPPLS(t_i; tc, psi) / d a
     X[i, 3] <- 1
-    # d/db
+    ## d LPPLS(t_i; tc, psi) / d b
     X[i, 4] <- tau_m
-    # d/dc1
+    ## d LPPLS(t_i; tc, psi) / d c1
     X[i, 5] <- tau_m * cos_term
-    # d/dc2
+    ## d LPPLS(t_i; tc, psi) / d c2
     X[i, 6] <- tau_m * sin_term
   }
 
@@ -202,14 +207,14 @@ compute_X_matrix <- function(Psi, tc, t) {
 
 #' Compute H Matrix for MPL
 #'
-#' Hessian-related matrix for modified profile likelihood.
+#' H matrix for modified profile likelihood.
 #' Filimonov (2017), equation (37).
 #'
 #' @keywords internal
 #' @noRd
 compute_H_matrix <- function(Psi, tc, log_p, t) {
   n <- length(t)
-  p <- 6
+  p <- 6 ## length(Psi) = 6
   H <- matrix(0, nrow = p, ncol = p)
 
   m <- Psi[1]
@@ -249,11 +254,21 @@ compute_H_matrix <- function(Psi, tc, log_p, t) {
     H[2, 6] <- H[2, 6] + res * tau_m * log_tau * cos_term
   }
 
-  # Symmetry
+  ## Symmetry
+
+  ## (omega, m)
   H[2, 1] <- H[1, 2]
+
+  ## (b, m)
   H[4, 1] <- H[1, 4]
+
+  ## (c1, m)
   H[5, 1] <- H[1, 5]
+
+  ## (c2, m)
   H[6, 1] <- H[1, 6]
+
+  ## The rest is zero
 
   H
 }
@@ -307,6 +322,8 @@ create_mpl_plot <- function(mpl_output, fit, n, fh) {
 #' @keywords internal
 #' @noRd
 create_fit_plot <- function(fit, time_id, log_price, n_model) {
+
+  ## Full data set in [T1, T2 + hold_out]
   plot_data <- data.frame(ID = time_id, log_p = log_price)
 
   ggplot2::ggplot(plot_data, ggplot2::aes(x = ID, y = log_p)) +
@@ -334,6 +351,8 @@ create_fit_plot <- function(fit, time_id, log_price, n_model) {
 
 #' Create Contour Data
 #'
+#' Generate SSE data for contour plot of SSE wrt m and omega.
+#'
 #' @keywords internal
 #' @noRd
 create_contour_data <- function(fit, log_p, t, lower, upper, beta_calculator, fb = FALSE) {
@@ -341,8 +360,8 @@ create_contour_data <- function(fit, log_p, t, lower, upper, beta_calculator, fb
 
   tc_val <- fit$tc
 
-  x_contour <- seq(lower[1], upper[1], length.out = 101)  # m
- y_contour <- seq(lower[2], upper[2], length.out = 101)  # omega
+  x_contour <- seq(lower[1], upper[1], length.out = 101)  ## m
+  y_contour <- seq(lower[2], upper[2], length.out = 101)  ## omega
 
   sse_func <- function(m_val, omega_val) {
     beta <- beta_calculator(log_p, t, tc_val, m_val, omega_val)
@@ -352,7 +371,8 @@ create_contour_data <- function(fit, log_p, t, lower, upper, beta_calculator, fb
   }
 
   z_contour <- outer(x_contour, y_contour, Vectorize(sse_func))
-  z_contour <- t(z_contour)  # Transpose for correct orientation
+  z_contour <- t(z_contour)  ## Transpose for correct orientation, as expected by
+                             ## contour plot
 
   list(x = x_contour, y = y_contour, z = z_contour, tc = tc_val)
 }
