@@ -1,7 +1,8 @@
 # lpplsF: Log-Periodic Power Law Singularity Model for Financial Bubbles
 
-[![R-CMD-check](https://github.com/yourusername/lpplsF/workflows/R-CMD-check/badge.svg)](https://github.com/yourusername/lpplsF/actions)
-[![codecov](https://codecov.io/gh/yourusername/lpplsF/branch/main/graph/badge.svg)](https://codecov.io/gh/yourusername/lpplsF)
+<!-- badges: start -->
+[![R-CMD-check](https://github.com/mahovo/lpplsF/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/mahovo/lpplsF/actions/workflows/R-CMD-check.yaml)
+<!-- badges: end -->
 
 ## Overview
 

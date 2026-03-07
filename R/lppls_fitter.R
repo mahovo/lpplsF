@@ -32,11 +32,11 @@
 #'   `B<0`. If such values are found, the given init values will be
 #'   overwritten.
 #' @param o_init Numeric, initial value of frequency `omega` for `optim()`
-#'   (default 13). `o_init` should be in [`lower[2]`, `upper[2]`]. Default is 13,
-#'   which increases the probability of `B<0` (of course not for random initial
-#'   values). The algorithm will search for initial values of `m` and `omega`
-#'   that give `B<0`. If such values are found, the given init values will be
-#'   overwritten.
+#'   (default 13). `o_init` should be in [`lower[2]`, `upper[2]`]. Default is
+#'   13, which increases the probability of `B<0` (of course not for random
+#'   initial values). The algorithm will search for initial values of `m` and
+#'   `omega` that give `B<0`. If such values are found, the given init values
+#'   will be overwritten.
 #' @param num_searches Integer, number of times to repeat the optimization wrt
 #'   `tc`, `m` and `omega`. First iteration uses given initial values. Any
 #'   subsequent iterations use random initial values.
@@ -106,8 +106,8 @@
 #'               If no fits passed the filter: Only unfiltered fits returned.
 #'             }
 #'           }
-#'           `ID` is an identifier indicating the order pre-sorting. These are the
-#'           indexes reported in "out of range" warnings.\cr
+#'           `ID` is an identifier indicating the order pre-sorting. These are
+#'           the indexes reported in "out of range" warnings.\cr
 #'         }
 #'         \item{mode = "F2"}{List with two or three elements:
 #'           \describe{
@@ -128,8 +128,8 @@
 #'             }
 #'             \item{`fit[[4]]`}{
 #'                  List of all tmp fits\cr
-#'                  For each `tc` value, there is a tibble with all fits using random
-#'                    starting points.
+#'                  For each `tc` value, there is a tibble with all fits using
+#'                  random starting points.
 #'             }
 #'           }
 #'         }
@@ -149,8 +149,8 @@
 #'     \item{mpl_plot}{(if requested) ggplot2 object for Modified Profile
 #'       Likelihood plot with likelihood intervals}
 #'     \item{fit_plot}{(if requested) ggplot2 object for fit plot}
-#'     \item{contour_data}{(if requested) List with `x`, `y` and `z` data for contour
-#'       plot of SSE wrt `m` and `omega`.}
+#'     \item{contour_data}{(if requested) List with `x`, `y` and `z` data for
+#'       contour plot of SSE wrt `m` and `omega`.}
 #'     \item{contour_plot}{(if requested) plotly object for contour plot}
 #'     \item{surface_plot}{(if requested) plotly object for surface plot}
 #'     \item{trace_plot_mo}{(if requested) ggplot2 object containing trace plot
@@ -183,8 +183,8 @@
 #' The Filimonov calibration exploits this structure by solving for the linear
 #' parameters analytically given the nonlinear ones.
 #'
-#' **Mode F1**: Optimizes all nonlinear parameters `c(tc, m, omega)` simultaneously
-#' using L-BFGS-B with multiple random starting points.
+#' **Mode F1**: Optimizes all nonlinear parameters `c(tc, m, omega)`
+#' simultaneously using L-BFGS-B with multiple random starting points.
 #'
 #' **Mode F2**: A two-stage procedure:
 #' \enumerate{

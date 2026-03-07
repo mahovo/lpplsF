@@ -73,7 +73,7 @@ eval_lppls <- function(
   omega3 = 0
 ) {
 
-  # Input validation
+  ## Input validation
   if (!is.numeric(t)) {
     stop("'t' must be a numeric vector")
   }
@@ -114,7 +114,8 @@ eval_lppls <- function(
 
   } else if (mode == 3) {
     ## Third order expansion.
-    ## See Johansen 1999 (Predicting Financial Crashes Using Discrete Scale Invariance), equation (22).
+    ## See Johansen 1999 (Predicting Financial Crashes Using Discrete Scale
+    ## Invariance), equation (22).
     ## I am repurposing the variable names from the Filimonov implementation:
     ## A instead of A_3
     ## B instead of B_3

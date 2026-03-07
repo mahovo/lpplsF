@@ -30,10 +30,10 @@ compute_mpl <- function(fit, log_p, t, fh, cutoff, fb = FALSE) {
   n <- length(t)
   log_cutoff <- log(cutoff)
 
-  # Initialize results
+  ## Initialize results
   R_tbl <- data.frame(R = numeric(fh), LL = numeric(fh))
 
-  # Get profile likelihood estimate
+  ## Get profile likelihood estimate
   par_hat <- c(
     fit[[1]]$tc,
     fit[[1]]$m,
@@ -44,17 +44,17 @@ compute_mpl <- function(fit, log_p, t, fh, cutoff, fb = FALSE) {
     fit[[1]]$C2
   )
 
-  # Compute log-likelihood for each tc value
+  ## Compute log-likelihood for each tc value
   for (i in seq_len(fh)) {
     if (fb && i %% 10 == 1) {
       message(sprintf("Computing LL for tc = %d to %d", n + i, min(n + i + 9, n + fh)))
     }
 
-    # Get fit for tc = n + i
+    ## Get fit for tc = n + i
     fit_i <- fit[[2]] %>% dplyr::filter(tc == n + i)
 
     if (nrow(fit_i) == 0) {
-      # Use unfiltered fits if filtered is empty
+      ## Use unfiltered fits if filtered is empty
       if (length(fit) >= 3) {
         fit_i <- fit[[3]] %>% dplyr::filter(tc == n + i)
       }
@@ -83,13 +83,13 @@ compute_mpl <- function(fit, log_p, t, fh, cutoff, fb = FALSE) {
     }
   }
 
-  # Calculate maximum and relative likelihood
+  ## Calculate maximum and relative likelihood
   MLL <- max(R_tbl$LL, na.rm = TRUE)
   R_tbl$R <- R_tbl$LL - MLL
 
   tc_hat_mpl <- n + which.max(R_tbl$LL)
 
-  # Compute likelihood intervals
+  ## Compute likelihood intervals
   tc_range <- (n + 1):(n + fh)
   LI <- list()
 
@@ -123,25 +123,25 @@ compute_mpl_loglik <- function(tc, tc_hat, Psi_hat_tc, Psi_hat, log_p, t) {
   n <- length(t)
   p <- 6
 
-  # Get SSE for this tc
+  ## Get SSE for this tc
   m_hat <- Psi_hat[1]
   omega_hat <- Psi_hat[2]
 
-  # Create beta calculator
+  ## Create beta calculator
   beta_calc <- create_beta_calculator()
   beta_vals <- beta_calc(log_p, t, tc, Psi_hat_tc[1], Psi_hat_tc[2])
 
-  # Compute fitted values and SSE
+  ## Compute fitted values and SSE
   fitted <- eval_lppls(t, beta_vals["A"], beta_vals["B"], beta_vals["C1"], beta_vals["C2"],
                        tc, Psi_hat_tc[1], Psi_hat_tc[2], mode = 0)
   s_tc <- sum((log_p - fitted)^2, na.rm = TRUE) / n
 
-  # Compute matrices
+  ## Compute matrices
   X_hat_tc <- compute_X_matrix(Psi_hat_tc, tc, t)
   X_hat <- compute_X_matrix(Psi_hat, tc_hat, t)
   H_hat_tc <- compute_H_matrix(Psi_hat_tc, tc, log_p, t)
 
-  # Compute log-likelihood
+  ## Compute log-likelihood
   XtX_tc <- crossprod(X_hat_tc, X_hat_tc)
   XtX_cross <- crossprod(X_hat, X_hat_tc)
 
@@ -231,26 +231,26 @@ compute_H_matrix <- function(Psi, tc, log_p, t) {
     cos_term <- cos(omega * log_tau)
     sin_term <- sin(omega * log_tau)
 
-    # LPPLS value
+    ## LPPLS value
     lppls_val <- a + tau_m * (b + c1 * cos_term + c2 * sin_term)
     res <- log_p[i] - lppls_val
 
-    # Second derivatives
-    # (m, m)
+    ## Second derivatives
+    ## (m, m)
     H[1, 1] <- H[1, 1] + res * tau_m * log_tau^2 * (b + c1 * cos_term + c2 * sin_term)
-    # (m, omega)
+    ## (m, omega)
     H[1, 2] <- H[1, 2] + res * tau_m * log_tau^2 * (-c1 * sin_term + c2 * cos_term)
-    # (m, b)
+    ## (m, b)
     H[1, 4] <- H[1, 4] + res * tau_m * log_tau
-    # (m, c1)
+    ## (m, c1)
     H[1, 5] <- H[1, 5] + res * tau_m * log_tau * cos_term
-    # (m, c2)
+    ## (m, c2)
     H[1, 6] <- H[1, 6] + res * tau_m * log_tau * sin_term
-    # (omega, omega)
+    ## (omega, omega)
     H[2, 2] <- H[2, 2] + res * (-1) * tau_m * log_tau^2 * (c1 * cos_term + c2 * sin_term)
-    # (omega, c1)
+    ## (omega, c1)
     H[2, 5] <- H[2, 5] + res * (-1) * tau_m * log_tau * sin_term
-    # (omega, c2)
+    ## (omega, c2)
     H[2, 6] <- H[2, 6] + res * tau_m * log_tau * cos_term
   }
 
@@ -300,7 +300,7 @@ create_mpl_plot <- function(mpl_output, fit, n, fh) {
     ) +
     ggplot2::theme_minimal()
 
-  # Add likelihood interval lines
+  ## Add likelihood interval lines
   colors <- c("green3", "orange", "red")
   linetypes <- c("dashed", "dotted", "dotdash")
 
@@ -545,7 +545,7 @@ create_trace_plot <- function(selector, opt_trace, lower, upper,
   lattice_dim <- 100
 
   if (selector == 1) {
-    # m vs omega lattice
+    ## m vs omega lattice
     lattice <- as.matrix(expand.grid(
       m = seq(min(lower[1], min(opt_trace[1, ])),
               max(upper[1], max(opt_trace[1, ])), length.out = lattice_dim),
@@ -556,7 +556,7 @@ create_trace_plot <- function(selector, opt_trace, lower, upper,
                           tc = tc_val, log_p = log_p, t = t)
 
   } else if (selector == 2) {
-    # B vs m lattice
+    ## B vs m lattice
     lattice <- as.matrix(expand.grid(
       m = seq(min(lower[1], min(opt_trace[1, ])),
               max(upper[1], max(opt_trace[1, ])), length.out = lattice_dim),
@@ -568,13 +568,23 @@ create_trace_plot <- function(selector, opt_trace, lower, upper,
 
     if (tp_id < 1 || tp_id > ncol(opt_trace)) {
       tp_id <- 1
-      warning("tp_id for (B,m) trace plot is <1 or too high. Replaced with tp_id=1")
+      warning("tp_id for (B,m) trace plot is <1 or too high. Replaced with tp_id=1\n")
     }
 
     SSE_tp <- function(par, a, c1, c2, tc, omega, log_p, t) {
-      SSE(par = list(A = a, B = par[2], C1 = c1, C2 = c2,
-                     tc = tc, m = par[1], omega = omega),
-          log_p = log_p, t = t)
+      SSE(
+        par = list(
+          A = a,
+          B = par[2],
+          C1 = c1,
+          C2 = c2,
+          tc = tc,
+          m = par[1],
+          omega = omega
+        ),
+        log_p = log_p,
+        t = t
+      )
     }
 
     lattice_vals <- apply(lattice, 1, SSE_tp,
@@ -583,10 +593,11 @@ create_trace_plot <- function(selector, opt_trace, lower, upper,
                           c2 = unname(beta_tp["C2"]),
                           tc = tc_val,
                           omega = opt_trace[2, tp_id],
-                          log_p = log_p, t = t)
+                          log_p = log_p,
+                          t = t)
 
   } else if (selector == 3) {
-    # B vs omega lattice
+    ## B vs omega lattice
     lattice <- as.matrix(expand.grid(
       omega = seq(min(lower[2], min(opt_trace[2, ])),
                   max(upper[2], max(opt_trace[2, ])), length.out = lattice_dim),
@@ -598,13 +609,23 @@ create_trace_plot <- function(selector, opt_trace, lower, upper,
 
     if (tp_id > ncol(opt_trace)) {
       tp_id <- 1
-      warning("tp_id for (B,omega) trace plot too high. Replaced with tp_id=1")
+      warning("tp_id for (B,omega) trace plot too high. Replaced with tp_id=1\n")
     }
 
     SSE_tp <- function(par, a, c1, c2, tc, m, log_p, t) {
-      SSE(par = list(A = a, B = par[2], C1 = c1, C2 = c2,
-                     tc = tc, m = m, omega = par[1]),
-          log_p = log_p, t = t)
+      SSE(
+        par = list(
+          A = a,
+          B = par[2],
+          C1 = c1,
+          C2 = c2,
+          tc = tc,
+          m = m,
+          omega = par[1]
+        ),
+        log_p = log_p,
+        t = t
+      )
     }
 
     lattice_vals <- apply(lattice, 1, SSE_tp,
@@ -613,7 +634,8 @@ create_trace_plot <- function(selector, opt_trace, lower, upper,
                           c2 = unname(beta_tp["C2"]),
                           tc = tc_val,
                           m = opt_trace[1, tp_id],
-                          log_p = log_p, t = t)
+                          log_p = log_p,
+                          t = t)
   }
 
   lattice <- as.data.frame(lattice)
@@ -694,6 +716,8 @@ create_trace_plot <- function(selector, opt_trace, lower, upper,
 #'
 #' @export
 fit_plot <- function(fit, time_ID, log_price, mode = 0) {
+
+  ## Plotting full data set in [T1, T2 + hold_out]
   plot_data <- data.frame(ID = time_ID, log_p = log_price)
 
   ggplot2::ggplot(plot_data, ggplot2::aes(x = ID, y = log_p)) +

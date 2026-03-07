@@ -171,7 +171,7 @@ create_beta_calculator <- function() {
 
     n <- length(t)
 
-    # Compute all matrix elements
+    ## Compute all matrix elements
     vals <- list(
       xx11 = n,
       xx12 = sum_f(t, tc, m),
@@ -195,7 +195,7 @@ create_beta_calculator <- function() {
       xy4 = sum_yh(log_p, t, tc, m, omega)
     )
 
-    # Calculate coefficients
+    ## Calculate coefficients
     a <- drop(do.call(A_func, vals))
     b <- drop(do.call(B_func, vals))
     c1 <- drop(do.call(C1_func, vals))

@@ -8,7 +8,7 @@ Description: Implementation of the Log-Periodic Power Law Singularity (LPPLS)
     model for detecting and analysing financial bubbles. Based on the calibration 
     methods described in Filimonov & Sornette (2013) and the Modified Profile 
     Likelihood inference from Filimonov, Demos & Sornette (2017). The package 
-    provides functions for fitting LPPLS models, computing confidence intervals 
+    provides functions for fitting LPPLS models, computing likelihood intervals
     for critical time estimates, and visualizing results.
 License: MIT + file LICENSE
 Encoding: UTF-8
