@@ -7,7 +7,7 @@
 fit_lppls(
   log_price,
   fh = 30,
-  hold_out = 15,
+  hold_out = 0,
   lower = c(0.1, 6, -1e+14, 0.8),
   upper = c(0.9, 13, -1e-14, 1e+06),
   tc_init = 1000,
@@ -35,7 +35,7 @@ fit_lppls(
 The search for \code{tc} extends from \code{T2+1} to \code{T2+fh} where \code{fh>1}.}
 
 \item{hold_out}{Integer, number of observations to hold out from the end
-of the sample for validation (default 15). That is, the number of data
+of the sample for validation (default 0). That is, the number of data
 points after \code{T2}.}
 
 \item{lower}{Numeric vector of length 4, lower bounds for
@@ -64,11 +64,11 @@ The algorithm will search for initial values of \code{m} and \code{omega} that g
 overwritten.}
 
 \item{o_init}{Numeric, initial value of frequency \code{omega} for \code{optim()}
-(default 13). \code{o_init} should be in [\code{lower[2]}, \code{upper[2]}]. Default is 13,
-which increases the probability of \code{B<0} (of course not for random initial
-values). The algorithm will search for initial values of \code{m} and \code{omega}
-that give \code{B<0}. If such values are found, the given init values will be
-overwritten.}
+(default 13). \code{o_init} should be in [\code{lower[2]}, \code{upper[2]}]. Default is
+13, which increases the probability of \code{B<0} (of course not for random
+initial values). The algorithm will search for initial values of \code{m} and
+\code{omega} that give \code{B<0}. If such values are found, the given init values
+will be overwritten.}
 
 \item{num_searches}{Integer, number of times to repeat the optimization wrt
 \code{tc}, \code{m} and \code{omega}. First iteration uses given initial values. Any
@@ -152,8 +152,8 @@ Output format:\cr
 If no fits passed the filter: Only unfiltered fits returned.
 }
 }
-\code{ID} is an identifier indicating the order pre-sorting. These are the
-indexes reported in "out of range" warnings.\cr
+\code{ID} is an identifier indicating the order pre-sorting. These are
+the indexes reported in "out of range" warnings.\cr
 }
 \item{mode = "F2"}{List with two or three elements:
 \describe{
@@ -174,8 +174,8 @@ If no fits passed the filter: Nothing is returned in \code{fit[[3]]}
 }
 \item{\code{fit[[4]]}}{
 List of all tmp fits\cr
-For each \code{tc} value, there is a tibble with all fits using random
-starting points.
+For each \code{tc} value, there is a tibble with all fits using
+random starting points.
 }
 }
 }
@@ -195,8 +195,8 @@ R values, log-likelihoods\cr
 \item{mpl_plot}{(if requested) ggplot2 object for Modified Profile
 Likelihood plot with likelihood intervals}
 \item{fit_plot}{(if requested) ggplot2 object for fit plot}
-\item{contour_data}{(if requested) List with \code{x}, \code{y} and \code{z} data for contour
-plot of SSE wrt \code{m} and \code{omega}.}
+\item{contour_data}{(if requested) List with \code{x}, \code{y} and \code{z} data for
+contour plot of SSE wrt \code{m} and \code{omega}.}
 \item{contour_plot}{(if requested) plotly object for contour plot}
 \item{surface_plot}{(if requested) plotly object for surface plot}
 \item{trace_plot_mo}{(if requested) ggplot2 object containing trace plot
@@ -234,8 +234,8 @@ The model has 7 parameters: \eqn{A}, \eqn{B}, \eqn{C_1}, \eqn{C_2} (linear) and 
 The Filimonov calibration exploits this structure by solving for the linear
 parameters analytically given the nonlinear ones.
 
-\strong{Mode F1}: Optimizes all nonlinear parameters \code{c(tc, m, omega)} simultaneously
-using L-BFGS-B with multiple random starting points.
+\strong{Mode F1}: Optimizes all nonlinear parameters \code{c(tc, m, omega)}
+simultaneously using L-BFGS-B with multiple random starting points.
 
 \strong{Mode F2}: A two-stage procedure:
 \enumerate{
