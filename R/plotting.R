@@ -83,6 +83,17 @@ compute_mpl <- function(fit, log_p, t, fh, cutoff, fb = FALSE) {
     }
   }
 
+  ## If the modified profile likelihood is undefined for every tc (e.g. an
+  ## indefinite information matrix at a boundary fit, so det1 <= 0 throughout),
+  ## return NA estimates rather than failing.
+  if (all(is.na(R_tbl$LL))) {
+    warning("MPL log-likelihood is NA for all tc (degenerate/boundary fit); returning NA estimates.")
+    return(list(
+      LI = replicate(length(cutoff), c(NA_real_, NA_real_), simplify = FALSE),
+      R = R_tbl$R, LL = R_tbl$LL, MLL = NA_real_, tc_hat_mpl = NA_real_
+    ))
+  }
+
   ## Calculate maximum and relative likelihood
   MLL <- max(R_tbl$LL, na.rm = TRUE)
   R_tbl$R <- R_tbl$LL - MLL
