@@ -326,8 +326,33 @@ create_fit_plot <- function(fit, time_id, log_price, n_model) {
   ## Full data set in [T1, T2 + hold_out]
   plot_data <- data.frame(ID = time_id, log_p = log_price)
 
+  ## Vertical markers: end of the fitting window (T2) and the estimated tc.
+  vlines <- data.frame(
+    xintercept = c(n_model, fit$tc),
+    series = c("T2", "tc_hat")
+  )
+
+  ## Legend definition. The order of `lvls` sets the legend order; colour and
+  ## linetype are mapped to the same series names so they merge into a single
+  ## legend.
+  lvls <- c("sim data", "LPPLS fit", "T2", "tc_hat")
+  cols <- c(
+    "sim data" = "royalblue1",
+    "LPPLS fit" = "red",
+    "T2" = "green",
+    "tc_hat" = "red"
+  )
+  ltys <- c(
+    "sim data" = "solid",
+    "LPPLS fit" = "solid",
+    "T2" = "dashed",
+    "tc_hat" = "dashed"
+  )
+
   ggplot2::ggplot(plot_data, ggplot2::aes(x = ID, y = log_p)) +
-    ggplot2::geom_line(color = "royalblue1") +
+    ggplot2::geom_line(
+      mapping = ggplot2::aes(color = "sim data", linetype = "sim data")
+    ) +
     ggplot2::geom_function(
       fun = eval_lppls,
       n = floor(fit$tc) - 1,
@@ -340,12 +365,23 @@ create_fit_plot <- function(fit, time_id, log_price, n_model) {
         m = fit$m,
         omega = fit$omega
       ),
-      color = "red"
+      mapping = ggplot2::aes(color = "LPPLS fit", linetype = "LPPLS fit")
     ) +
-    ggplot2::geom_vline(xintercept = n_model, color = "green", linetype = "dashed") +
-    ggplot2::geom_vline(xintercept = fit$tc, color = "red", linetype = "dashed") +
+    ggplot2::geom_vline(
+      data = vlines,
+      mapping = ggplot2::aes(
+        xintercept = xintercept,
+        color = series,
+        linetype = series
+      ),
+      inherit.aes = FALSE,
+      key_glyph = "path"
+    ) +
+    ggplot2::scale_color_manual(name = NULL, values = cols, breaks = lvls) +
+    ggplot2::scale_linetype_manual(name = NULL, values = ltys, breaks = lvls) +
     ggplot2::labs(x = "Time Index", y = "Log Price") +
-    ggplot2::theme_minimal()
+    ggplot2::theme_minimal() +
+    overlay_legend_theme()
 }
 
 

@@ -127,7 +127,7 @@ eval_lppls <- function(
     A + (
       tau^m / sqrt(1 + (tau / T1)^(2 * m) + (tau / T2)^(4 * m)) *
         (B + C1 * cos(
-          omega + log(tau) + (omega2 / (2 * m)) *
+          omega * log(tau) + (omega2 / (2 * m)) *
             log(1 + (tau / T1)^(2 * m)) +
             (omega3 / (4 * m)) *
             log(1 + (tau / T2)^(4 * m)) +
