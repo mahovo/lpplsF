@@ -134,17 +134,21 @@ compute_mpl_loglik <- function(tc, tc_hat, Psi_hat_tc, Psi_hat, log_p, t) {
   n <- length(t)
   p <- 6
 
-  ## Get SSE for this tc
-  m_hat <- Psi_hat[1]
-  omega_hat <- Psi_hat[2]
-
   ## Create beta calculator
   beta_calc <- create_beta_calculator()
   beta_vals <- beta_calc(log_p, t, tc, Psi_hat_tc[1], Psi_hat_tc[2])
 
   ## Compute fitted values and SSE
-  fitted <- eval_lppls(t, beta_vals["A"], beta_vals["B"], beta_vals["C1"], beta_vals["C2"],
-                       tc, Psi_hat_tc[1], Psi_hat_tc[2], mode = 0)
+  fitted <- eval_lppls(
+    t,
+    beta_vals["A"],
+    beta_vals["B"],
+    beta_vals["C1"],
+    beta_vals["C2"],
+    tc, Psi_hat_tc[1],
+    Psi_hat_tc[2],
+    mode = 0
+  )
   s_tc <- sum((log_p - fitted)^2, na.rm = TRUE) / n
 
   ## Compute matrices
@@ -297,34 +301,71 @@ create_mpl_plot <- function(mpl_output, fit, n, fh) {
     log_mpl = mpl_output$LL
   )
 
-  tc_hat <- fit[[1]]$tc
-  tc_mpl <- mpl_output$tc_hat_mpl
+  ## Collect the vertical markers into one data frame so colour and linetype
+  ## map to a single legend: the PLE / MPLE point estimates and the LI bounds
+  ## (each interval contributes two lines but one legend entry).
+  vmarks <- data.frame(
+    xintercept = c(fit[[1]]$tc, mpl_output$tc_hat_mpl),
+    series = c("PLE", "MPLE")
+  )
+  li_names <- c("LI_05", "LI_10", "LI_50")
+  for (i in seq_along(mpl_output$LI)) {
+    li <- mpl_output$LI[[i]]
+    if (!any(is.na(li))) {
+      vmarks <- rbind(
+        vmarks,
+        data.frame(xintercept = c(li[1], li[2]), series = li_names[i])
+      )
+    }
+  }
 
-  p <- ggplot2::ggplot(df_plot, ggplot2::aes(x = tc, y = log_mpl)) +
+  all_lvls <- c("PLE", "MPLE", "LI_05", "LI_10", "LI_50")
+  present <- all_lvls[all_lvls %in% vmarks$series]
+  vmarks$series <- factor(vmarks$series, levels = present)
+
+  cols <- c(PLE = "blue", MPLE = "blue", LI_05 = "green3",
+            LI_10 = "orange", LI_50 = "red")
+  ltys <- c(PLE = "solid", MPLE = "dashed", LI_05 = "dashed",
+            LI_10 = "dotted", LI_50 = "dotdash")
+
+  ggplot2::ggplot(df_plot, ggplot2::aes(x = tc, y = log_mpl)) +
     ggplot2::geom_point() +
-    ggplot2::geom_vline(xintercept = tc_hat, color = "blue") +
-    ggplot2::geom_vline(xintercept = tc_mpl, color = "blue", linetype = "dashed") +
+    ggplot2::geom_vline(
+      data = vmarks,
+      mapping = ggplot2::aes(xintercept = xintercept,
+                             color = series, linetype = series),
+      key_glyph = "path"
+    ) +
+    ggplot2::scale_color_manual(name = NULL, values = cols, breaks = present) +
+    ggplot2::scale_linetype_manual(name = NULL, values = ltys, breaks = present) +
     ggplot2::labs(
       x = "Critical Time (tc)",
       y = "Log Modified Profile Likelihood",
       title = "Modified Profile Likelihood"
     ) +
-    ggplot2::theme_minimal()
+    ggplot2::theme_minimal() +
+    overlay_legend_theme()
+}
 
-  ## Add likelihood interval lines
-  colors <- c("green3", "orange", "red")
-  linetypes <- c("dashed", "dotted", "dotdash")
 
-  for (i in seq_along(mpl_output$LI)) {
-    li <- mpl_output$LI[[i]]
-    if (!any(is.na(li))) {
-      p <- p +
-        ggplot2::geom_vline(xintercept = li[1], color = colors[i], linetype = linetypes[i]) +
-        ggplot2::geom_vline(xintercept = li[2], color = colors[i], linetype = linetypes[i])
-    }
-  }
-
-  p
+#' Compact semi-transparent legend overlaid in the panel's upper-left corner
+#'
+#' A theme fragment that places the legend inside the plotting region (top-left)
+#' instead of in the right margin, so it does not steal horizontal space.
+#'
+#' @keywords internal
+#' @noRd
+overlay_legend_theme <- function() {
+  ggplot2::theme(
+    legend.position = "inside",
+    legend.position.inside = c(0.01, 0.99),
+    legend.justification.inside = c(0, 1),
+    legend.title = ggplot2::element_blank(),
+    legend.background = ggplot2::element_rect(
+      fill = grDevices::adjustcolor("white", alpha.f = 0.6), color = NA),
+    legend.key = ggplot2::element_rect(fill = NA, color = NA),
+    legend.margin = ggplot2::margin(2, 4, 2, 2)
+  )
 }
 
 
@@ -383,8 +424,7 @@ create_fit_plot <- function(fit, time_id, log_price, n_model) {
       mapping = ggplot2::aes(
         xintercept = xintercept,
         color = series,
-        linetype = series
-      ),
+        linetype = series),
       inherit.aes = FALSE,
       key_glyph = "path"
     ) +
@@ -412,8 +452,17 @@ create_contour_data <- function(fit, log_p, t, lower, upper, beta_calculator, fb
 
   sse_func <- function(m_val, omega_val) {
     beta <- beta_calculator(log_p, t, tc_val, m_val, omega_val)
-    fitted <- eval_lppls(t, beta["A"], beta["B"], beta["C1"], beta["C2"],
-                         tc_val, m_val, omega_val, mode = 0)
+    fitted <- eval_lppls(
+      t,
+      beta["A"],
+      beta["B"],
+      beta["C1"],
+      beta["C2"],
+      tc_val,
+      m_val,
+      omega_val,
+      mode = 0
+    )
     sum((log_p - fitted)^2, na.rm = TRUE)
   }
 
@@ -584,9 +633,19 @@ create_matrix_plot <- function(n, fh, lower, upper, log_p, t, SSE2_func) {
 #'
 #' @keywords internal
 #' @noRd
-create_trace_plot <- function(selector, opt_trace, lower, upper,
-                               SSE2_func, beta_calc,
-                               tc_val, log_p, t, tp_id, fb = FALSE) {
+create_trace_plot <- function(
+    selector,
+    opt_trace,
+    lower,
+    upper,
+    SSE2_func,
+    beta_calc,
+    tc_val,
+    log_p,
+    t,
+    tp_id,
+    fb = FALSE
+  ) {
   if (fb) message(sprintf("Generating trace plot %d...", selector))
 
   lattice_dim <- 100
@@ -594,10 +653,16 @@ create_trace_plot <- function(selector, opt_trace, lower, upper,
   if (selector == 1) {
     ## m vs omega lattice
     lattice <- as.matrix(expand.grid(
-      m = seq(min(lower[1], min(opt_trace[1, ])),
-              max(upper[1], max(opt_trace[1, ])), length.out = lattice_dim),
-      omega = seq(min(lower[2], min(opt_trace[2, ])),
-                  max(upper[2], max(opt_trace[2, ])), length.out = lattice_dim)
+      m = seq(
+        min(lower[1], min(opt_trace[1, ])),
+        max(upper[1], max(opt_trace[1, ])),
+        length.out = lattice_dim
+      ),
+      omega = seq(
+        min(lower[2], min(opt_trace[2, ])),
+        max(upper[2], max(opt_trace[2, ])),
+        length.out = lattice_dim
+      )
     ))
     lattice_vals <- apply(lattice, 1, SSE2_func,
                           tc = tc_val, log_p = log_p, t = t)
@@ -605,10 +670,16 @@ create_trace_plot <- function(selector, opt_trace, lower, upper,
   } else if (selector == 2) {
     ## B vs m lattice
     lattice <- as.matrix(expand.grid(
-      m = seq(min(lower[1], min(opt_trace[1, ])),
-              max(upper[1], max(opt_trace[1, ])), length.out = lattice_dim),
-      B = seq(min(lower[3], min(opt_trace[3, ])),
-              max(upper[3], max(opt_trace[3, ])), length.out = lattice_dim)
+      m = seq(
+        min(lower[1], min(opt_trace[1, ])),
+        max(upper[1], max(opt_trace[1, ])),
+        length.out = lattice_dim
+      ),
+      B = seq(
+        min(lower[3], min(opt_trace[3, ])),
+        max(upper[3], max(opt_trace[3, ])),
+        length.out = lattice_dim
+      )
     ))
 
     beta_tp <- beta_calc(log_p, t, tc_val, opt_trace[1, 1], opt_trace[2, 1])
@@ -634,22 +705,32 @@ create_trace_plot <- function(selector, opt_trace, lower, upper,
       )
     }
 
-    lattice_vals <- apply(lattice, 1, SSE_tp,
-                          a = unname(beta_tp["A"]),
-                          c1 = unname(beta_tp["C1"]),
-                          c2 = unname(beta_tp["C2"]),
-                          tc = tc_val,
-                          omega = opt_trace[2, tp_id],
-                          log_p = log_p,
-                          t = t)
+    lattice_vals <- apply(
+      lattice,
+      1,
+      SSE_tp,
+      a = unname(beta_tp["A"]),
+      c1 = unname(beta_tp["C1"]),
+      c2 = unname(beta_tp["C2"]),
+      tc = tc_val,
+      omega = opt_trace[2, tp_id],
+      log_p = log_p,
+      t = t
+    )
 
   } else if (selector == 3) {
     ## B vs omega lattice
     lattice <- as.matrix(expand.grid(
-      omega = seq(min(lower[2], min(opt_trace[2, ])),
-                  max(upper[2], max(opt_trace[2, ])), length.out = lattice_dim),
-      B = seq(min(lower[3], min(opt_trace[3, ])),
-              max(upper[3], max(opt_trace[3, ])), length.out = lattice_dim)
+      omega = seq(
+        min(lower[2], min(opt_trace[2, ])),
+        max(upper[2], max(opt_trace[2, ])),
+        length.out = lattice_dim
+      ),
+      B = seq(
+        min(lower[3], min(opt_trace[3, ])),
+        max(upper[3], max(opt_trace[3, ])),
+        length.out = lattice_dim
+      )
     ))
 
     beta_tp <- beta_calc(log_p, t, tc_val, opt_trace[1, 1], opt_trace[2, 1])
@@ -675,14 +756,18 @@ create_trace_plot <- function(selector, opt_trace, lower, upper,
       )
     }
 
-    lattice_vals <- apply(lattice, 1, SSE_tp,
-                          a = unname(beta_tp["A"]),
-                          c1 = unname(beta_tp["C1"]),
-                          c2 = unname(beta_tp["C2"]),
-                          tc = tc_val,
-                          m = opt_trace[1, tp_id],
-                          log_p = log_p,
-                          t = t)
+    lattice_vals <- apply(
+      lattice,
+      1,
+      SSE_tp,
+      a = unname(beta_tp["A"]),
+      c1 = unname(beta_tp["C1"]),
+      c2 = unname(beta_tp["C2"]),
+      tc = tc_val,
+      m = opt_trace[1, tp_id],
+      log_p = log_p,
+      t = t
+    )
   }
 
   lattice <- as.data.frame(lattice)
@@ -697,10 +782,20 @@ create_trace_plot <- function(selector, opt_trace, lower, upper,
       ggplot2::geom_contour(ggplot2::aes(z = vals), col = "white") +
       ggplot2::geom_path(data = opt_df, col = "orange") +
       ggplot2::geom_point(data = opt_df, col = "orange") +
-      ggplot2::geom_point(data = head(opt_df, 1), shape = 21,
-                          fill = "red", color = "orange", size = 3) +
-      ggplot2::geom_point(data = tail(opt_df, 1), shape = 23,
-                          fill = "green", color = "orange", size = 3) +
+      ggplot2::geom_point(
+        data = head(opt_df, 1),
+        shape = 21,
+        fill = "red",
+        color = "orange",
+        size = 3
+      ) +
+      ggplot2::geom_point(
+        data = tail(opt_df, 1),
+        shape = 23,
+        fill = "green",
+        color = "orange",
+        size = 3
+      ) +
       ggplot2::scale_fill_viridis_c() +
       ggplot2::coord_cartesian(expand = FALSE)
 
@@ -713,10 +808,20 @@ create_trace_plot <- function(selector, opt_trace, lower, upper,
       ggplot2::geom_contour(ggplot2::aes(z = vals), col = "white") +
       ggplot2::geom_path(data = opt_df, col = "orange") +
       ggplot2::geom_point(data = opt_df, col = "orange") +
-      ggplot2::geom_point(data = head(opt_df, 1), shape = 21,
-                          fill = "red", color = "orange", size = 3) +
-      ggplot2::geom_point(data = tail(opt_df, 1), shape = 23,
-                          fill = "green", color = "orange", size = 3) +
+      ggplot2::geom_point(
+        data = head(opt_df, 1),
+        shape = 21,
+        fill = "red",
+        color = "orange",
+        size = 3
+      ) +
+      ggplot2::geom_point(
+        data = tail(opt_df, 1),
+        shape = 23,
+        fill = "green",
+        color = "orange",
+        size = 3
+      ) +
       ggplot2::scale_fill_viridis_c() +
       ggplot2::coord_cartesian(expand = FALSE)
 
@@ -729,10 +834,20 @@ create_trace_plot <- function(selector, opt_trace, lower, upper,
       ggplot2::geom_contour(ggplot2::aes(z = vals), col = "white") +
       ggplot2::geom_path(data = opt_df, col = "orange") +
       ggplot2::geom_point(data = opt_df, col = "orange") +
-      ggplot2::geom_point(data = head(opt_df, 1), shape = 21,
-                          fill = "red", color = "orange", size = 3) +
-      ggplot2::geom_point(data = tail(opt_df, 1), shape = 23,
-                          fill = "green", color = "orange", size = 3) +
+      ggplot2::geom_point(
+        data = head(opt_df, 1),
+        shape = 21,
+        fill = "red",
+        color = "orange",
+        size = 3
+      ) +
+      ggplot2::geom_point(
+        data = tail(opt_df, 1),
+        shape = 23,
+        fill = "green",
+        color = "orange",
+        size = 3
+      ) +
       ggplot2::scale_fill_viridis_c() +
       ggplot2::coord_cartesian(expand = FALSE)
   }
@@ -818,10 +933,19 @@ fit_plot <- function(fit, time_ID, log_price, mode = 0) {
 #' }
 #'
 #' @export
-contour_plot_sse <- function(log_p, t, par, vars,
-                              lower = c(0.0, -0.001), upper = c(1.0, 0.001),
-                              cp = TRUE, sp = FALSE, fb = FALSE,
-                              point = c(NA, NA), mode = 0) {
+contour_plot_sse <- function(
+    log_p,
+    t,
+    par,
+    vars,
+    lower = c(0.0, -0.001),
+    upper = c(1.0, 0.001),
+    cp = TRUE,
+    sp = FALSE,
+    fb = FALSE,
+    point = c(NA, NA),
+    mode = 0
+  ) {
 
   if (length(log_p) != length(t)) {
     stop("Length of log_p and t must be the same")
@@ -921,4 +1045,93 @@ contour_plot_sse <- function(log_p, t, par, vars,
   }
 
   list(contour_plot = contour_plot_out, surface_plot = surface_plot_out)
+}
+
+
+#' Plot tc Estimates and Likelihood Intervals Across Rolling T1
+#'
+#' Plots the point estimate of the critical time \eqn{t_c} (profile likelihood,
+#' black; modified profile likelihood, cyan) with the 5\%, 10\% and 50\%
+#' likelihood-interval bands, as a function of the rolling calibration start time
+#' \eqn{T_1}. This is a general window-diagnostic — useful with or without
+#' Lagrange regularization — and reproduces the `*_output_T1` figure from the
+#' thesis. Requires the rolling calibration to have been run in `mode = "MPL"`.
+#'
+#' @param x An object of class `"lppls_rolling"` from [lppls_rolling()].
+#'
+#' @return A `ggplot2` object.
+#'
+#' @seealso [lppls_rolling()], [rolling_param_plot()]
+#'
+#' @export
+rolling_tc_plot <- function(x) {
+  if (!inherits(x, "lppls_rolling")) {
+    stop("'x' must be an object of class 'lppls_rolling' (see lppls_rolling())")
+  }
+  if (all(is.na(x$table$tc_hat_mpl))) {
+    stop("No likelihood intervals available: run lppls_rolling() with mode = 'MPL'.")
+  }
+
+  tab <- x$table
+  cols <- c("LI_05" = "green", "LI_10" = "orange", "LI_50" = "red",
+            "MPLE" = "cyan", "PLE" = "black")
+
+  ggplot2::ggplot(tab, ggplot2::aes(x = T1, y = tc)) +
+    ggplot2::geom_ribbon(
+      ggplot2::aes(ymin = LI5l, ymax = LI5u, color = "LI_05"),
+      fill = "grey50",
+      alpha = 0.2,
+      key_glyph = "path"
+    ) +
+    ggplot2::geom_ribbon(
+      ggplot2::aes(ymin = LI10l, ymax = LI10u, color = "LI_10"),
+      fill = "grey50",
+      alpha = 0.2,
+      key_glyph = "path"
+    ) +
+    ggplot2::geom_ribbon(
+      ggplot2::aes(ymin = LI50l, ymax = LI50u, color = "LI_50"),
+      fill = "grey50",
+      alpha = 0.2,
+      key_glyph = "path"
+    ) +
+    ggplot2::geom_line(ggplot2::aes(color = "PLE"), linewidth = 1) +
+    ggplot2::geom_line(ggplot2::aes(y = tc_hat_mpl, color = "MPLE"), linewidth = 0.25) +
+    ggplot2::scale_color_manual(name = NULL, values = cols, breaks = names(cols)) +
+    ggplot2::xlab(quote(T[1])) +
+    ggplot2::ylab(quote(hat(t)[c])) +
+    ggplot2::theme_minimal()
+}
+
+
+#' Plot LPPLS Parameter Estimates Across Rolling T1
+#'
+#' Plots the estimated LPPLS parameters \eqn{m, \omega, A, B, C_1, C_2} as a
+#' function of the rolling calibration start time \eqn{T_1}, one facet per
+#' parameter. A general window-diagnostic that reproduces the `*_params_plot`
+#' figure from the thesis.
+#'
+#' @param x An object of class `"lppls_rolling"` from [lppls_rolling()].
+#'
+#' @return A `ggplot2` object.
+#'
+#' @seealso [lppls_rolling()], [rolling_tc_plot()]
+#'
+#' @importFrom tidyr gather
+#' @export
+rolling_param_plot <- function(x) {
+  if (!inherits(x, "lppls_rolling")) {
+    stop("'x' must be an object of class 'lppls_rolling' (see lppls_rolling())")
+  }
+
+  d <- tidyr::gather(
+    x$table[, c("m", "omega", "A", "B", "C1", "C2", "T1")],
+    key = "param", value = "estimate", -T1
+  )
+
+  ggplot2::ggplot(d, ggplot2::aes(x = T1, y = estimate)) +
+    ggplot2::geom_line(linewidth = 0.3) +
+    ggplot2::facet_wrap(~param, scales = "free_y", ncol = 1) +
+    ggplot2::xlab(quote(T[1])) +
+    ggplot2::theme_minimal()
 }

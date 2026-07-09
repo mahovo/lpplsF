@@ -18,5 +18,5 @@ fitted linear bias trend overlaid (red line). Reproduces the
 \verb{*_chi_sq_np_plot} figure from the thesis.
 }
 \seealso{
-\code{\link[=lppls_lagrange]{lppls_lagrange()}}, \code{\link[=chi_sq_lambda_plot]{chi_sq_lambda_plot()}}
+\code{\link[=lppls_lagrange]{lppls_lagrange()}}, \code{\link[=lppls_rolling]{lppls_rolling()}}, \code{\link[=chi_sq_lambda_plot]{chi_sq_lambda_plot()}}
 }

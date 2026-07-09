@@ -18,5 +18,5 @@ with a vertical line (green) at the optimal start time \eqn{T_1^*}.
 Reproduces the \verb{*_chi_sq_lambda_plot} figure from the thesis.
 }
 \seealso{
-\code{\link[=lppls_lagrange]{lppls_lagrange()}}, \code{\link[=chi_sq_np_plot]{chi_sq_np_plot()}}
+\code{\link[=lppls_lagrange]{lppls_lagrange()}}, \code{\link[=lppls_rolling]{lppls_rolling()}}, \code{\link[=chi_sq_np_plot]{chi_sq_np_plot()}}
 }
