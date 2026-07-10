@@ -369,73 +369,6 @@ overlay_legend_theme <- function() {
 }
 
 
-#' Create Fit Plot
-#'
-#' @keywords internal
-#' @noRd
-create_fit_plot <- function(fit, time_id, log_price, n_model) {
-
-  ## Full data set in [T1, T2 + hold_out]
-  plot_data <- data.frame(ID = time_id, log_p = log_price)
-
-  ## Vertical markers: end of the fitting window (T2) and the estimated tc.
-  vlines <- data.frame(
-    xintercept = c(n_model, fit$tc),
-    series = c("T2", "tc_hat")
-  )
-
-  ## Legend definition. The order of `lvls` sets the legend order; colour and
-  ## linetype are mapped to the same series names so they merge into a single
-  ## legend.
-  lvls <- c("sim data", "LPPLS fit", "T2", "tc_hat")
-  cols <- c(
-    "sim data" = "royalblue1",
-    "LPPLS fit" = "red",
-    "T2" = "green",
-    "tc_hat" = "red"
-  )
-  ltys <- c(
-    "sim data" = "solid",
-    "LPPLS fit" = "solid",
-    "T2" = "dashed",
-    "tc_hat" = "dashed"
-  )
-
-  ggplot2::ggplot(plot_data, ggplot2::aes(x = ID, y = log_p)) +
-    ggplot2::geom_line(
-      mapping = ggplot2::aes(color = "sim data", linetype = "sim data")
-    ) +
-    ggplot2::geom_function(
-      fun = eval_lppls,
-      n = floor(fit$tc) - 1,
-      args = list(
-        A = fit$A,
-        B = fit$B,
-        C1 = fit$C1,
-        C2 = fit$C2,
-        tc = fit$tc,
-        m = fit$m,
-        omega = fit$omega
-      ),
-      mapping = ggplot2::aes(color = "LPPLS fit", linetype = "LPPLS fit")
-    ) +
-    ggplot2::geom_vline(
-      data = vlines,
-      mapping = ggplot2::aes(
-        xintercept = xintercept,
-        color = series,
-        linetype = series),
-      inherit.aes = FALSE,
-      key_glyph = "path"
-    ) +
-    ggplot2::scale_color_manual(name = NULL, values = cols, breaks = lvls) +
-    ggplot2::scale_linetype_manual(name = NULL, values = ltys, breaks = lvls) +
-    ggplot2::labs(x = "Time Index", y = "Log Price") +
-    ggplot2::theme_minimal() +
-    overlay_legend_theme()
-}
-
-
 #' Create Contour Data
 #'
 #' Generate SSE data for contour plot of SSE wrt m and omega.
@@ -857,49 +790,73 @@ create_trace_plot <- function(
 }
 
 
-#' Create Fit Plot (Exported Version)
+#' Plot a Fitted LPPLS Model
 #'
-#' Generate a plot showing the fitted LPPLS model against observed data.
+#' Draws the observed log-price series together with the fitted LPPLS curve, a
+#' vertical marker at the estimated critical time \eqn{\hat{t}_c}, and---when the
+#' calibration end is supplied via `T2`---a marker at \eqn{T_2}. Colour and line
+#' type are merged into a single legend (`sim data` / `LPPLS fit` / `T2` /
+#' `tc_hat`). This is the same builder [fit_lppls()] attaches as its `fit_plot`
+#' component (called there with `T2` set to the calibration-window end).
 #'
-#' @param fit List of parameter values (A, B, C1, C2, tc, m, omega).
-#' @param time_ID Numeric vector of time indices.
-#' @param log_price Numeric vector of log-prices.
-#' @param mode Integer, LPPLS model mode (default 0).
+#' @param fit A named list of point estimates with elements `A`, `B`, `C1`,
+#'   `C2`, `tc`, `m`, `omega` (e.g. `fit_lppls(...)$fit[[1]]`).
+#' @param time_ID Numeric vector of time indices for `log_price`.
+#' @param log_price Numeric vector of observed log-prices.
+#' @param mode Integer, the LPPLS model variant passed to [eval_lppls()] for the
+#'   fitted curve (default 0, the Filimonov parameterization that [fit_lppls()]
+#'   calibrates).
+#' @param T2 Numeric or `NULL`. The calibration-window end. When supplied, a
+#'   dashed marker is drawn there and added to the legend; when `NULL` (default)
+#'   only the \eqn{\hat{t}_c} marker is shown.
 #'
-#' @return A ggplot2 object.
+#' @return A `ggplot2` object.
+#'
+#' @seealso [fit_lppls()], [eval_lppls()]
 #'
 #' @examples
 #' \dontrun{
-#' # After fitting a model
-#' result <- fit_lppls(log_price = log_p, mode = "F2")
-#' p <- fit_plot(result$fit[[1]], t, log_p)
-#' print(p)
+#' fit <- fit_lppls(log_price = log_p, mode = "F2")
+#' # public convenience call: only the tc_hat marker
+#' fit_plot(fit$fit[[1]], seq_along(log_p), log_p)
+#' # with the calibration end marked, as fit_lppls() draws it internally
+#' fit_plot(fit$fit[[1]], seq_along(log_p), log_p, T2 = length(log_p) - 200)
 #' }
 #'
 #' @export
-fit_plot <- function(fit, time_ID, log_price, mode = 0) {
-
-  ## Plotting full data set in [T1, T2 + hold_out]
+fit_plot <- function(fit, time_ID, log_price, mode = 0, T2 = NULL) {
   plot_data <- data.frame(ID = time_ID, log_p = log_price)
 
-  ggplot2::ggplot(plot_data, ggplot2::aes(x = ID, y = log_p)) +
-    ggplot2::geom_line(linewidth = 0.5, color = "royalblue1") +
-    ggplot2::geom_function(
-      fun = eval_lppls,
-      args = list(
-        A = fit$A,
-        B = fit$B,
-        C1 = fit$C1,
-        C2 = fit$C2,
-        tc = fit$tc,
-        m = fit$m,
-        omega = fit$omega,
-        mode = mode
-      ),
-      color = "red"
+  # tc_hat always; T2 only when the caller supplies it
+  marks <- data.frame(xintercept = fit$tc, series = "tc_hat")
+  if (!is.null(T2)) marks <- rbind(data.frame(xintercept = T2, series = "T2"), marks)
+
+  lvls <- c("sim data", "LPPLS fit", if (!is.null(T2)) "T2", "tc_hat")
+  cols <- c("sim data"="royalblue1", "LPPLS fit"="red", "T2"="green", "tc_hat"="red")
+  ltys <- c("sim data"="solid", "LPPLS fit"="solid", "T2"="dashed", "tc_hat"="dashed")
+
+  fit_t    <- seq.int(min(time_ID), floor(fit$tc) - 1L)
+  fit_line <- data.frame(
+    ID    = fit_t,
+    log_p = eval_lppls(fit_t, fit$A, fit$B, fit$C1, fit$C2,
+                       fit$tc, fit$m, fit$omega, mode = mode)
+  )
+
+  ggplot2::ggplot(plot_data, ggplot2::aes(ID, log_p)) +
+    ggplot2::geom_line(ggplot2::aes(color = "sim data", linetype = "sim data")) +
+    ggplot2::geom_line(
+      data = fit_line,
+      mapping = ggplot2::aes(color = "LPPLS fit", linetype = "LPPLS fit")
     ) +
+    ggplot2::geom_vline(
+      data = marks,
+      mapping = ggplot2::aes(xintercept = xintercept, color = series, linetype = series),
+      inherit.aes = FALSE, key_glyph = "path") +
+    ggplot2::scale_color_manual(name = NULL, values = cols, breaks = lvls) +
+    ggplot2::scale_linetype_manual(name = NULL, values = ltys, breaks = lvls) +
     ggplot2::labs(x = "Time Index", y = "Log Price") +
-    ggplot2::theme_minimal()
+    ggplot2::theme_minimal() +
+    overlay_legend_theme()
 }
 
 

@@ -715,11 +715,12 @@ fit_lppls <- function(
 
   ## Fit plot
   if (fp) {
-    fit_plot_obj <- create_fit_plot(
-      fit = fit[[1]],
-      time_id = time_id,
+    fit_plot_obj <- fit_plot(
+      fit       = fit[[1]],
+      time_ID   = time_id,
       log_price = log_price,
-      n_model = n
+      mode      = 0,
+      T2        = n            # n was the old n_model (the T2 marker position)
     )
   }
 

@@ -2,31 +2,47 @@
 % Please edit documentation in R/plotting.R
 \name{fit_plot}
 \alias{fit_plot}
-\title{Create Fit Plot (Exported Version)}
+\title{Plot a Fitted LPPLS Model}
 \usage{
-fit_plot(fit, time_ID, log_price, mode = 0)
+fit_plot(fit, time_ID, log_price, mode = 0, T2 = NULL)
 }
 \arguments{
-\item{fit}{List of parameter values (A, B, C1, C2, tc, m, omega).}
+\item{fit}{A named list of point estimates with elements \code{A}, \code{B}, \code{C1},
+\code{C2}, \code{tc}, \code{m}, \code{omega} (e.g. \code{fit_lppls(...)$fit[[1]]}).}
 
-\item{time_ID}{Numeric vector of time indices.}
+\item{time_ID}{Numeric vector of time indices for \code{log_price}.}
 
-\item{log_price}{Numeric vector of log-prices.}
+\item{log_price}{Numeric vector of observed log-prices.}
 
-\item{mode}{Integer, LPPLS model mode (default 0).}
+\item{mode}{Integer, the LPPLS model variant passed to \code{\link[=eval_lppls]{eval_lppls()}} for the
+fitted curve (default 0, the Filimonov parameterization that \code{\link[=fit_lppls]{fit_lppls()}}
+calibrates).}
+
+\item{T2}{Numeric or \code{NULL}. The calibration-window end. When supplied, a
+dashed marker is drawn there and added to the legend; when \code{NULL} (default)
+only the \eqn{\hat{t}_c} marker is shown.}
 }
 \value{
-A ggplot2 object.
+A \code{ggplot2} object.
 }
 \description{
-Generate a plot showing the fitted LPPLS model against observed data.
+Draws the observed log-price series together with the fitted LPPLS curve, a
+vertical marker at the estimated critical time \eqn{\hat{t}_c}, and---when the
+calibration end is supplied via \code{T2}---a marker at \eqn{T_2}. Colour and line
+type are merged into a single legend (\verb{sim data} / \verb{LPPLS fit} / \code{T2} /
+\code{tc_hat}). This is the same builder \code{\link[=fit_lppls]{fit_lppls()}} attaches as its \code{fit_plot}
+component (called there with \code{T2} set to the calibration-window end).
 }
 \examples{
 \dontrun{
-# After fitting a model
-result <- fit_lppls(log_price = log_p, mode = "F2")
-p <- fit_plot(result$fit[[1]], t, log_p)
-print(p)
+fit <- fit_lppls(log_price = log_p, mode = "F2")
+# public convenience call: only the tc_hat marker
+fit_plot(fit$fit[[1]], seq_along(log_p), log_p)
+# with the calibration end marked, as fit_lppls() draws it internally
+fit_plot(fit$fit[[1]], seq_along(log_p), log_p, T2 = length(log_p) - 200)
 }
 
+}
+\seealso{
+\code{\link[=fit_lppls]{fit_lppls()}}, \code{\link[=eval_lppls]{eval_lppls()}}
 }
