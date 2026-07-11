@@ -2,37 +2,59 @@
 % Please edit documentation in R/lppls_model.R
 \name{SSE}
 \alias{SSE}
-\title{Sum of Squared Errors for LPPLS Model}
+\title{Sum of Squared Errors for the LPPLS Model}
 \usage{
 SSE(par, log_p, t, mode = 0)
 }
 \arguments{
-\item{par}{A named list with elements: tc, m, omega, A, B, C1, C2}
+\item{par}{Named list of LPPLS parameters. Must contain the core parameters
+\code{A}, \code{B}, \code{C1}, \code{C2}, \code{tc}, \code{m}, \code{omega}; may additionally contain \code{T1},
+\code{T2}, \code{omega2}, \code{omega3} for \code{mode = 2} or \code{3}.}
 
 \item{log_p}{Numeric vector of observed log-prices.}
 
-\item{t}{Numeric vector of time indices.}
+\item{t}{Numeric vector of time indices, the same length as \code{log_p}.}
 
-\item{mode}{Integer, the LPPLS model variant (default 0).}
+\item{mode}{Integer, the LPPLS model variant (\code{0}-\code{3}; default \code{0}).}
 }
 \value{
 Numeric scalar, the sum of squared errors.
 }
 \description{
-Computes the sum of squared residuals between observed log-prices and
-the LPPLS model predictions.
+Computes the residual sum of squares between observed log-prices and the
+LPPLS model evaluated at a given parameter set. This is the objective the
+calibration minimizes and the quantity \code{\link[=contour_plot_sse]{contour_plot_sse()}} scans over a
+parameter grid.
+}
+\details{
+\code{par} is a named list of LPPLS parameters. The seven core parameters \code{A},
+\code{B},
+\code{C1}, \code{C2}, \code{tc}, \code{m}, \code{omega} are required. For the higher-order variants
+(\code{mode = 2} or \code{3}), \code{par} may also carry the scale and secondary-frequency
+parameters \code{T1}, \code{T2}, \code{omega2}, \code{omega3}; each is forwarded to
+\code{\link[=eval_lppls]{eval_lppls()}} when present and otherwise falls back to that function's
+default (\code{T1 = 500}, \code{T2 = 1990}, \code{omega2 = 0}, \code{omega3 = 0}). Requesting
+a higher-order mode without supplying the parameters it uses issues a
+warning and falls back to those defaults, since silently defaulting them
+can give a misleading SSE.
+
+Elements of \code{par} not recognised by \code{\link[=eval_lppls]{eval_lppls()}} are ignored. Time points
+at or beyond \code{tc} produce \code{NaN} from \code{\link[=eval_lppls]{eval_lppls()}} and are dropped from the
+sum (\code{na.rm = TRUE}).
 }
 \examples{
-# Create parameter list
+t <- 1:100
 par <- list(A = 4, B = -0.015, C1 = 0.0015, C2 = 0.001,
             tc = 150, m = 0.5, omega = 9)
-
-# Generate synthetic data with noise
-t <- 1:100
 log_p <- eval_lppls(t, par$A, par$B, par$C1, par$C2,
-                   par$tc, par$m, par$omega) + rnorm(100, 0, 0.01)
+                    par$tc, par$m, par$omega) + rnorm(100, 0, 0.01)
+SSE(par, log_p, t)
 
-# Calculate SSE
-sse_value <- SSE(par, log_p, t)
+# Higher-order variant (mode 2): supply T1 and omega2 alongside the core set
+par2 <- c(par, list(T1 = 300, omega2 = 5))
+SSE(par2, log_p, t, mode = 2)
 
+}
+\seealso{
+\code{\link[=eval_lppls]{eval_lppls()}}, \code{\link[=contour_plot_sse]{contour_plot_sse()}}
 }

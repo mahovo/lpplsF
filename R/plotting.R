@@ -908,6 +908,42 @@ contour_plot_sse <- function(
     stop("Length of log_p and t must be the same")
   }
 
+  all_pars <- c(.lppls_pars$core, .lppls_pars$higher)
+  if (!is.list(par) || (length(par) && is.null(names(par)))) {
+    stop("'par' must be a named list")
+  }
+  if (!is.list(vars) || !all(c("x", "y") %in% names(vars)) ||
+      !is.character(vars$x) || !is.character(vars$y) ||
+      length(vars$x) != 1L || length(vars$y) != 1L) {
+    stop("'vars' must be a list with single character elements 'x' and 'y'")
+  }
+  if (!all(c(vars$x, vars$y) %in% all_pars)) {
+    stop("'vars$x'/'vars$y' must name eval_lppls parameters: ",
+        paste(all_pars, collapse = ", "))
+  }
+  if (any(c(vars$x, vars$y) %in% names(par)))                        ## can't both fix and scan a param
+    stop("scanned variable(s) also fixed in 'par': ",
+         paste(intersect(c(vars$x, vars$y), names(par)), collapse = ", "))
+  if (!is.numeric(lower) || !is.numeric(upper) ||
+        length(lower) != 2L || length(upper) != 2L) {
+    stop("'lower' and 'upper' must be numeric vectors of length 2")
+  }
+  if (any(lower >= upper)) {
+    stop("each 'lower' bound must be strictly less than its 'upper'")
+  }
+  if (!isTRUE(mode %in% 0:3)) stop("'mode' must be 0, 1, 2 or 3")
+  miss <- setdiff(.lppls_pars$core, c(names(par), vars$x, vars$y))   ## fixed + scanned cover the core
+  if (length(miss)) {
+    stop(
+      "core parameter(s) missing from 'par' + 'vars': ",
+      paste(miss, collapse = ", "))
+  }
+  absent <- setdiff(.lppls_mode_higher(mode), c(names(par), vars$x, vars$y))
+  if (length(absent))
+    warning("mode ", mode, " uses ", paste(.lppls_mode_higher(mode), collapse = ", "),
+            "; '", paste(absent, collapse = "', '"),
+            "' not in 'par'/'vars' \u2014 using eval_lppls() default(s)")
+
   if (fb) message("Generating contour plot data...")
 
   contour_plot_out <- NULL
@@ -919,7 +955,7 @@ contour_plot_sse <- function(
   sse_contour <- function(x, y) {
     xy_list <- list(x, y)
     names(xy_list) <- c(vars$x, vars$y)
-    SSE(par = c(par, xy_list), log_p = log_p, t = t, mode = mode)
+    .sse(c(par, xy_list), log_p, t, mode)     # was: SSE(par = c(par, xy_list), ...)
   }
 
   z_contour <- t(outer(x_contour, y_contour, Vectorize(sse_contour)))
