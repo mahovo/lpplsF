@@ -207,3 +207,59 @@ test_that("fit_lppls handles edge case of short time series", {
   expect_type(result, "list")
   expect_true("fit" %in% names(result))
 })
+
+# ---------------------------------------------------------------------------
+# num_searches = 1 trace fidelity (P-6): the replay must start from
+# (m_init, o_init), so the first plotted segment is the true first BFGS step.
+# ---------------------------------------------------------------------------
+
+test_that("num_searches = 1 trace path replays the real BFGS step from (m_init, o_init)", {
+  skip_on_cran()
+
+  set.seed(1)
+  n       <- 200L
+  tc_true <- 220
+  log_p   <- eval_lppls(seq_len(n), 8, -0.025, 0.0015, 0.001, tc_true, 0.6, 8) +
+    rnorm(n) * 0.01
+  t       <- seq_len(n)
+  lower   <- c(0.1, 6, -0.03, 0.8)
+  upper   <- c(0.9, 13, -1e-14, 1e6)
+  m_init  <- 0.3
+  o_init  <- 10
+
+  fit <- suppressWarnings(fit_lppls(
+    log_price = log_p, fh = 30, hold_out = 0, lower = lower, upper = upper,
+    tc_init = tc_true, m_init = m_init, o_init = o_init,
+    num_searches = 1, mode = "F2", tp = c(1, 0, 0)))
+
+  ## Pull the (m, omega) path out of the trace plot's GeomPath layer.
+  ## Match the geom class exactly -- GeomContour inherits from GeomPath.
+  p    <- fit$trace_plot_mo
+  idx  <- which(vapply(p$layers, function(l) class(l$geom)[1] == "GeomPath",
+                       logical(1)))[1]
+  path <- p$layers[[idx]]$data
+  path <- path[order(path$step), ]
+
+  ## The red start dot is the true initial values ...
+  expect_equal(unname(unlist(path[1, c("m", "omega")])), c(m_init, o_init))
+
+  ## ... and the first segment is one L-BFGS-B step FROM those values, not from a
+  ## random restart. Reconstruct the F2 objective the fitter minimises and replay
+  ## a single iteration; this must equal the plotted second point.
+  bc   <- create_beta_calculator()
+  sse2 <- function(par, tc, log_p, t) {
+    b <- bc(log_p, t, tc, par[1], par[2])
+    sum((log_p - eval_lppls(t, b["A"], b["B"], b["C1"], b["C2"],
+                            tc, par[1], par[2], mode = 0))^2, na.rm = TRUE)
+  }
+  tc_hat <- fit$fit[[1]]$tc
+  step1  <- stats::optim(c(m_init, o_init), sse2, tc = tc_hat, log_p = log_p, t = t,
+                         lower = lower[1:2], upper = upper[1:2],
+                         method = "L-BFGS-B", control = list(maxit = 1))$par
+  expect_equal(unname(unlist(path[2, c("m", "omega")])), unname(step1),
+               tolerance = 1e-6)
+
+  ## Sanity: the path converges to the reported estimate.
+  expect_equal(unname(unlist(path[nrow(path), c("m", "omega")])),
+               c(fit$fit[[1]]$m, fit$fit[[1]]$omega), tolerance = 1e-2)
+})

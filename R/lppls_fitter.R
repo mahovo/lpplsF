@@ -769,39 +769,47 @@ fit_lppls <- function(
       tc_val <- fit[[1]]$tc
       need_B <- (tp[2] == 1 || tp[3] == 1)
 
-      ## Replay optimization at best fit's tc, tracing parameter path
-      set.seed(fit2_best$ID)
+      ## Replay the best search's optimization, tracing the parameter path.
+      ## Start from the same initial point that search used (cf. the search loop):
+      ## (m_init, o_init) for the first search, otherwise its random start. This
+      ## makes the first plotted segment the real first BFGS step.
       s <- seq_len(opt2_counts[[fit2_best$ID]])
+      set.seed(fit2_best$ID)
+      init_replay <- if (fit2_best$ID == 1L) {
+        c(m_init, o_init)
+      } else {
+        c(stats::runif(1, lower[1], upper[1]),
+          stats::runif(1, lower[2], upper[2]))
+      }
 
       opt_trace <- sapply(s, function(iter) {
-        set.seed(fit2_best$ID)
         opt_i <- stats::optim(
-          par = c(stats::runif(1, lower[1], upper[1]),
-                  stats::runif(1, lower[2], upper[2])),
-          fn = SSE2,
-          tc = tc_val,
-          log_p = log_p,
-          t = t,
-          lower = c(lower[1], lower[2]),
-          upper = c(upper[1], upper[2]),
-          method = "L-BFGS-B",
-          control = list(maxit = iter)
+          par     = init_replay,
+          fn      = SSE2, tc = tc_val, log_p = log_p, t = t,
+          lower   = c(lower[1], lower[2]), upper = c(upper[1], upper[2]),
+          method  = "L-BFGS-B", control = list(maxit = iter)
         )$par
-
         if (need_B) {
-          opt_i <- c(opt_i, unname(beta_calculator(
-            log_p, t, tc_val, opt_i[1], opt_i[2])["B"]))
+          opt_i <- c(
+            opt_i,
+            unname(beta_calculator(log_p, t, tc_val, opt_i[1], opt_i[2])["B"])
+          )
         }
         opt_i
       })
 
-      ## Prepend initial point
+      ## Prepend the actual starting point (the red start dot)
       if (need_B) {
-        init_B <- unname(beta_calculator(log_p, t, tc_val, m_init, o_init)["B"])
-        opt_trace <- matrix(c(m_init, o_init, init_B, opt_trace),
-                            byrow = FALSE, nrow = 3)
+        init_B <- unname(
+          beta_calculator(log_p, t, tc_val, init_replay[1], init_replay[2])["B"]
+        )
+        opt_trace <- matrix(
+          c(init_replay[1], init_replay[2], init_B, opt_trace),
+          byrow = FALSE,
+          nrow = 3
+        )
       } else {
-        opt_trace <- matrix(c(m_init, o_init, opt_trace),
+        opt_trace <- matrix(c(init_replay[1], init_replay[2], opt_trace),
                             byrow = FALSE, nrow = 2)
       }
 
