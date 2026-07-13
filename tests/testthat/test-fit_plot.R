@@ -130,3 +130,19 @@ test_that("fit_plot builds silently", {
   expect_silent(ggplot2::ggplot_build(fit_plot(fit, d$t, d$log_p)))
   expect_silent(ggplot2::ggplot_build(fit_plot(fit, d$t, d$log_p, T2 = 250)))
 })
+
+# ---------------------------------------------------------------------------
+# Boundary-fit detection for the MPL (P-9): .boundary_pars() flags m / omega
+# pinned at an optimisation bound, so compute_mpl() can warn that the modified
+# profile likelihood and its likelihood intervals are unreliable (e.g. the SPX
+# m = 0.9 boundary fit).
+# ---------------------------------------------------------------------------
+
+test_that(".boundary_pars flags m / omega pinned at an optimisation bound", {
+  lower <- c(0.1, 6); upper <- c(0.9, 13)
+  expect_identical(.boundary_pars(list(m = 0.9, omega = 8),  lower, upper), "m")           # m at upper
+  expect_identical(.boundary_pars(list(m = 0.1, omega = 8),  lower, upper), "m")           # m at lower
+  expect_identical(.boundary_pars(list(m = 0.6, omega = 13), lower, upper), "omega")       # omega at upper
+  expect_identical(.boundary_pars(list(m = 0.9, omega = 6),  lower, upper), c("m", "omega"))
+  expect_identical(.boundary_pars(list(m = 0.6, omega = 8),  lower, upper), character(0))   # interior
+})

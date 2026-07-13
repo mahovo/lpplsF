@@ -1,3 +1,24 @@
+#' Which nonlinear parameters are pinned at an optimisation bound
+#'
+#' Returns the names (`"m"` / `"omega"`) of the nonlinear parameters sitting at
+#' (within `tol` of) their `lower`/`upper` bound. A non-empty result flags a
+#' boundary solution, for which the information matrix is (near-)singular and the
+#' modified profile likelihood / likelihood intervals are unreliable.
+#'
+#' @keywords internal
+#' @noRd
+.boundary_pars <- function(fit, lower, upper, tol = 1e-3) {
+  at <- function(x, lo, hi) (x - lo) <= tol * (hi - lo) || (hi - x) <= tol * (hi - lo)
+  pinned <- character(0)
+  if (at(fit$m,     lower[1], upper[1])) pinned <- c(pinned, "m")
+  if (at(fit$omega, lower[2], upper[2])) pinned <- c(pinned, "omega")
+  pinned
+}
+
+
+
+
+
 #' Modified Profile Likelihood Functions and Plotting
 #'
 #' @keywords internal
@@ -13,6 +34,9 @@
 #' @param t Numeric vector of time indices.
 #' @param fh Integer, forecast horizon.
 #' @param cutoff Numeric vector of cutoff levels for confidence intervals.
+#' @param lower,upper Numeric bounds passed to fit_lppls(); used to flag a
+#'   boundary solution (m or omega pinned at a bound) for which the MPL is
+#'   unreliable.
 #' @param fb Logical, whether to print feedback.
 #'
 #' @return List with:
@@ -26,7 +50,7 @@
 #'
 #' @keywords internal
 #' @noRd
-compute_mpl <- function(fit, log_p, t, fh, cutoff, fb = FALSE) {
+compute_mpl <- function(fit, log_p, t, fh, cutoff, lower, upper, fb = FALSE) {
   n <- length(t)
   log_cutoff <- log(cutoff)
 
@@ -43,6 +67,13 @@ compute_mpl <- function(fit, log_p, t, fh, cutoff, fb = FALSE) {
     fit[[1]]$C1,
     fit[[1]]$C2
   )
+
+  pinned <- .boundary_pars(fit[[1]], lower, upper)
+  if (length(pinned) > 0) {
+    warning("LPPLS fit is a boundary solution (", paste(pinned, collapse = ", "),
+            " at the optimisation bound); the modified profile likelihood and its ",
+            "likelihood intervals are unreliable for this fit.")
+  }
 
   ## Compute log-likelihood for each tc value
   for (i in seq_len(fh)) {

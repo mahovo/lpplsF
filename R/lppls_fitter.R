@@ -698,6 +698,8 @@ fit_lppls <- function(
       t = t,
       fh = fh,
       cutoff = mpl_cutoff,
+      lower = lower,
+      upper = upper,
       fb = fb
     )
 
