@@ -375,7 +375,10 @@ create_mpl_plot <- function(mpl_output, fit, n, fh) {
       title = "Modified Profile Likelihood"
     ) +
     ggplot2::theme_minimal() +
-    overlay_legend_theme()
+    overlay_legend_theme(
+      inside = c(0.99, 0.99),
+      justification = c(1, 1)
+    )
 }
 
 
@@ -386,11 +389,14 @@ create_mpl_plot <- function(mpl_output, fit, n, fh) {
 #'
 #' @keywords internal
 #' @noRd
-overlay_legend_theme <- function() {
+overlay_legend_theme <- function(
+    inside = c(0.01, 0.99),
+    justification = c(0, 1)
+  ) {
   ggplot2::theme(
     legend.position = "inside",
-    legend.position.inside = c(0.01, 0.99),
-    legend.justification.inside = c(0, 1),
+    legend.position.inside = inside,
+    legend.justification.inside = justification,
     legend.title = ggplot2::element_blank(),
     legend.background = ggplot2::element_rect(
       fill = grDevices::adjustcolor("white", alpha.f = 0.6), color = NA),
@@ -980,6 +986,13 @@ contour_plot_sse <- function(
   contour_plot_out <- NULL
   surface_plot_out <- NULL
 
+  ## Axis labels follow each parameter's meaning under `mode`: in the higher-order
+  ## Landau modes the C2 slot is the log-periodic phase, so it is shown as "phi".
+  xlab <- .lppls_display_label(vars$x, mode)
+  ylab <- .lppls_display_label(vars$y, mode)
+
+  x_contour <- seq(lower[1], upper[1], length.out = 101)
+
   x_contour <- seq(lower[1], upper[1], length.out = 101)
   y_contour <- seq(lower[2], upper[2], length.out = 101)
 
@@ -1006,10 +1019,10 @@ contour_plot_sse <- function(
       ncontours = 10,
       colorbar = list(exponentformat = "e", title = "SSE")
     ) %>%
-      plotly::layout(
-        title = sprintf("SSE w.r.t. %s and %s", vars$x, vars$y),
-        xaxis = list(title = vars$x),
-        yaxis = list(title = vars$y)
+    plotly::layout(
+        title = sprintf("SSE w.r.t. %s and %s", xlab, ylab),
+        xaxis = list(title = xlab),
+        yaxis = list(title = ylab)
       )
 
     if (!is.na(sum(point))) {
@@ -1053,14 +1066,14 @@ contour_plot_sse <- function(
             project = list(z = TRUE)
           )
         ),
-        colorbar = list(exponentformat = "e", title = "SSE")
+        showscale = FALSE          ## z-axis already is SSE; drop the redundant colorbar
       ) %>%
       plotly::layout(
-        title = sprintf("SSE w.r.t. %s and %s", vars$x, vars$y),
+        title = sprintf("SSE w.r.t. %s and %s", xlab, ylab),
         scene = list(
           camera = list(eye = list(x = 1.1, y = -1.3, z = 0.1)),
-          xaxis = list(title = vars$x),
-          yaxis = list(title = vars$y),
+          xaxis = list(title = xlab),
+          yaxis = list(title = ylab),
           zaxis = list(title = "SSE")
         )
       )
@@ -1068,7 +1081,11 @@ contour_plot_sse <- function(
     if (fb) message("Surface plot generated")
   }
 
-  list(contour_plot = contour_plot_out, surface_plot = surface_plot_out)
+  list(
+    contour_plot = contour_plot_out,
+    surface_plot = surface_plot_out,
+    contour_data = contour_data
+  )
 }
 
 
