@@ -1,0 +1,650 @@
+---
+title: "Lagrange Regularization under Realistic Noise"
+subtitle: "Inference diagnostics for the LPPLS rolling-window $\\chi^2$ trend"
+author: "Martin Hoshi Vognsen"
+date: "`r format(Sys.time(), '%H:%M %d %B %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    number_sections: true
+    df_print: kable
+params:
+  recompute: false   # FALSE = load pre-computed data/ (fast, default); TRUE = re-run every heavy chunk
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, message = FALSE, warning = FALSE,
+                      fig.width = 8, fig.height = 5, dpi = 110)
+
+## ── ONE SWITCH (set in the YAML header) ──────────────────────────────────────
+##   params$recompute = FALSE : load pre-computed results from data/  (fast; default)
+##                    = TRUE  : re-run every heavy chunk and refresh data/  (CPU-hours)
+## Heavy chunks are gated `eval = RECOMPUTE`; they assemble their results into the
+## SAME object names the loader uses (quant, pboot, onset, s4fig, spx_base), so every
+## display chunk (e.g. `s <- quant$summ`) is identical in both modes.
+RECOMPUTE <- isTRUE(params$recompute)
+D   <- "data"
+suppressMessages({library(ggplot2); library(knitr)})
+kab <- function(x, ...) kable(x, ..., format = "html")
+if (RECOMPUTE) suppressMessages({
+  pkgload::load_all("../..", quiet = TRUE)          # the lpplsF package (worktree root)
+  library(parallel); library(sandwich); library(tsgarch); library(xts)
+})
+```
+
+```{r load-precomputed, eval = !RECOMPUTE, echo = FALSE}
+quant    <- readRDS(file.path(D, "quant.rds"))         # Exp A: MC (summ + per-seed detail)
+pboot    <- readRDS(file.path(D, "pboot.rds"))         # Exp E/F: parametric AR-GARCH bootstrap
+onset    <- readRDS(file.path(D, "onset.rds"))         # Exp C: onset x noise x seed
+s4fig    <- readRDS(file.path(D, "s4fig.rds"))         # Exp B: single regime, thesis spec, by seed
+spx_base <- readRDS(file.path(D, "spx_baselines.rds")) # Exp F: SPX OLS / HAC
+```
+
+```{=html}
+<style>
+table { border-collapse: collapse; margin: 1.2em 0; font-size: 0.95em; }
+table th, table td { padding: 6px 16px; border-bottom: 1px solid #ddd; text-align: left; }
+table th { border-bottom: 2px solid #888; white-space: nowrap; }
+tr:hover { background: #f6f6f6; }
+</style>
+```
+
+**Scope.** This report documents an *inference* investigation attached to thesis
+§8.4 (rolling $T_1$ / Lagrange regularization). It asks one question:  
+
+**Is the $\chi^2_{np}(T_1)$ trend that Lagrange regularization acts on a real 
+signal, or an artifact of the noise?**  
+
+The report answers this question with a sequence of experiments. All
+computations use the **corrected** package `lppls_lagrange()` (verified below),
+never the buggy `e014` implementation.  
+
+**Reproducibility.** Heavy fitting chunks are not re-run at knit time
+(`eval=FALSE`) — their outputs are loaded from `data/` and tables/figures
+regenerated live — but they are complete and runnable. Per-fit cost is ~9 s
+(synthetic, `fh=150`) to ~30 s (SPX, `fh=500`); the full set is several CPU-hours
+(appendix). Parallelism uses `parallel::mclapply(mc.cores = 8)`.
+
+# The object under study
+
+For a rolling-window calibration with common end $T_2$ and start $T_1$ over a grid,
+Demos & Sornette (2019) define the normalized residual sum of squares
+$$\chi^2_{np}(T_1) = \frac{1}{n_{\text{cal}}(T_1)-p}\sum_{i=T_1}^{T_2} r_i^2$$
+The bias of $\chi^2_{np}(T_1)$ is modeled as a linear trend $\chi^2_{np}(T_1)=\beta_0+\beta_1 T_1$ (OLS). Set
+$\lambda^\ast=-\beta_1$, and pick
+$T_1^\ast=\arg\min_{T_1}\big[\chi^2_{np}(T_1)-\lambda^\ast(T_2-T_1)\big]
+=\arg\min_{T_1}\big[\chi^2_{np}(T_1)-\beta_1 T_1\big].$
+The whole method rests on one number, $\beta_1$. This report asks whether $\beta_1$
+is distinguishable from zero and whether $T_1^\ast$ locates anything real.
+
+## Corrected implementation (verification)
+
+The package computes $\chi^2_{np}=$ `sse_cal/(n_cal-p)` with `sse_cal` the true
+residual sum of squares of the per-window fitted LPPLS curve. (The thesis 
+implementation in `e014` contains a bug, squaring the residuals twice). The chunk 
+below (runnable) checks it against a hand computation.
+
+```{r verify, eval=RECOMPUTE}
+set.seed(3630)
+lp   <- eval_lppls(1:2000, 8, -0.025, 0.0015, 0.001, 2001, 0.6, 8) + rnorm(2000) * 0.05
+roll <- lppls_rolling(lp, t1_seq = seq(1, 401, 100), hold_out = 100, fh = 150,
+          fit_args = list(lower = c(0.1,6,-0.03,0.8), upper = c(0.9,13,-1e-14,1e6),
+                          m_init = 0.2, o_init = 12, num_searches = 1, mode = "F2", factr = 1e7))
+lag  <- lppls_lagrange(roll, p = 0)
+k <- 2; T1 <- roll$table$T1[k]; n_cal <- roll$table$n_cal[k]; best <- roll$fits[[k]]
+wlp <- lp[T1:2000]; tcal <- seq_len(n_cal)
+fitted_curve <- eval_lppls(tcal, best$A, best$B, best$C1, best$C2, best$tc, best$m, best$omega, 0)
+manual_sse   <- sum((wlp[tcal] - fitted_curve)^2)
+stopifnot(all.equal(lag$table$chi_sq_np[k], manual_sse / n_cal))   # p = 0  ->  divide by n_cal
+```
+
+# Shared machinery
+
+Data-generating processes and the rolling+Lagrange driver used throughout. The
+AR(1)-GARCH(1,1) generator provides the non-Gaussian noise motivated by §8.3
+(autocorrelation/heteroskedasticity can mimic log-periodic structure).
+
+```{r generators, eval=RECOMPUTE}
+## AR(1)-GARCH(1,1) noise; unconditional sd rescaled to sd_target
+gen_argarch <- function(n, sd_target = 0.05, seed, burn = 500,
+                        ar1 = 0.8, alpha1 = 0.10, beta1 = 0.88, om0 = 1e-4) {
+  set.seed(seed)
+  z <- rnorm(n + burn); s2 <- numeric(n + burn); ee <- numeric(n + burn)
+  s2[1] <- om0 / (1 - alpha1 - beta1); ee[1] <- sqrt(s2[1]) * z[1]
+  for (t in 2:(n + burn)) {
+    s2[t] <- om0 + alpha1 * ee[t-1]^2 + beta1 * s2[t-1]; ee[t] <- sqrt(s2[t]) * z[t]
+  }
+  y <- numeric(n + burn); for (t in 2:(n + burn)) y[t] <- ar1 * y[t-1] + ee[t]
+  e <- y[(burn+1):(burn+n)]; e * (sd_target / sd(e))
+}
+noise <- function(type, n, seed, sd = 0.05)
+  if (type == "argarch") gen_argarch(n, sd_target = sd, seed = seed)
+  else { set.seed(seed); rnorm(n) * sd }
+
+N <- 2000; tc <- N + 1
+## single-regime LPPLS bubble, or flat "ranging" prefix (with noise) -> LPPLS at `onset`
+build <- function(scenario, seed, onset = 600) {
+  if (grepl("^single", scenario)) {
+    eval_lppls(1:N, 8, -0.025, 0.0015, 0.001, tc, 0.6, 8) + noise(sub("single_","",scenario), N, seed)
+  } else {
+    ty  <- sub("regime_", "", scenario)
+    bub <- eval_lppls(onset:N, 8, -0.025, 0.0015, 0.001, tc, 0.6, 8)
+    set.seed(seed + 1)
+    c(rep(bub[1], onset - 1), bub) + c(noise(ty, onset - 1, seed), rnorm(N - onset + 1) * 0.05)
+  }
+}
+## evaluate a fitted-parameter list on time points t
+eval_pars <- function(th, t) eval_lppls(t, th$A, th$B, th$C1, th$C2, th$tc, th$m, th$omega)
+
+## roll T1 (fixed T2) then Lagrange-regularize -> lppls_lagrange object
+run_lr <- function(lp, t1_max = 1001, by = 50, hold_out = 100, fh = 150,
+                   lo = c(0.1,6,-0.03,0.8), up = c(0.9,13,-1e-14,1e6))
+  lppls_lagrange(lppls_rolling(lp, t1_seq = seq(1, t1_max, by = by),
+    hold_out = hold_out, fh = fh, fit_args = list(lower = lo, upper = up,
+    m_init = 0.2, o_init = 12, num_searches = 1, mode = "F2", factr = 1e7)), p = 0)
+```
+
+# Experiment A — Is $\lambda$ distinguishable from zero?
+
+**Motivation.** Within a *single* noise realization, $\chi^2_{np}(T_1)$ is a fixed
+sequence with some slope $\beta_1$; regressing it on $T_1$ almost always returns a
+"significant" slope. The relevant question is whether that slope reflects the
+data-generating process or merely *where this particular noise draw put its
+variance*. Because we have the generative model we answer it by Monte-Carlo: hold the
+LPPLS process fixed, redraw the noise across seeds, and look at the distribution of
+$\beta_1$. The test statistic measures how far the mean slope stands out against 
+its seed-to-seed spread: `z_across = |mean(beta1)| / sd(beta1)`.
+
+```{r expA-driver, eval=RECOMPUTE}
+library(parallel)
+scenarios <- c("single_gauss", "single_argarch", "regime_gauss", "regime_argarch")
+seeds     <- c(3630, 7, 11, 19, 23, 42, 101, 777)
+grid <- expand.grid(scenario = scenarios, seed = seeds, stringsAsFactors = FALSE)
+
+fit_one <- function(scenario, seed) {                # one realization -> slope + within-fit OLS stats
+  lag <- run_lr(build(scenario, seed)); sm <- summary(lag$trend)
+  n   <- nrow(lag$table); T1 <- lag$table$T1
+  data.frame(scenario = scenario, seed = seed,
+             beta1    = sm$coefficients["T1", "Estimate"],
+             p        = sm$coefficients["T1", "Pr(>|t|)"],       # naive OLS p (autocorrelation-inflated)
+             R2       = sm$r.squared,
+             trendpct = sm$coefficients["T1","Estimate"] * (max(T1) - min(T1)) /
+                        mean(lag$table$chi_sq_np) * 100)          # trend span as % of the level
+}
+detail <- do.call(rbind, mclapply(seq_len(nrow(grid)),
+  function(k) fit_one(grid$scenario[k], grid$seed[k]), mc.cores = 8))
+
+## across-seed summary per scenario
+summ <- do.call(rbind, by(detail, detail$scenario, function(d) data.frame(
+  scenario     = d$scenario[1],
+  mean_lambda  = -mean(d$beta1),                    # lambda = -beta1
+  z_across     = abs(mean(d$beta1)) / sd(d$beta1),
+  med_p_within = median(d$p), n_p05 = sum(d$p < 0.05),
+  sign_pos = sum(d$beta1 > 0), sign_neg = sum(d$beta1 < 0),
+  mean_trendpct = mean(d$trendpct))))
+
+## assemble into the canonical object used by the display chunks + refresh the cache
+quant <- list(detail = split(detail, detail$scenario), summ = summ)
+saveRDS(quant, file.path(D, "quant.rds"))
+```
+
+**Result — across-seed summary.**
+
+```{r expA-summary, eval=TRUE, echo=FALSE}
+s <- quant$summ
+kab(data.frame(
+  scenario                    = s$scenario,
+  `mean lambda`               = formatC(s$mean_lambda, format = "e", digits = 2),
+  `z_across`                  = round(s$z_across, 2),
+  `trend % of level`          = round(s$mean_trendpct, 1),
+  `median within-fit OLS p`   = formatC(s$med_p_within, format = "e", digits = 1),
+  `# of 8 with p<.05`         = s$n_p05,
+  `sign +/-`                  = paste0(s$sign_pos, " / ", s$sign_neg),
+  check.names = FALSE),
+  caption = "Table A1. Across-seed distribution of the chi^2_np slope (8 seeds per scenario).")
+```
+
+**The autocorrelation trap, made explicit.** The per-seed detail for `single_argarch`
+below shows the within-realization OLS regression calling the trend wildly
+"significant" — down to **$p=2.7\times10^{-16}$ with $R^2=0.90$ (seed 3630)**, and
+`p<.05` in most seeds — even though the trend spans only ~1–4% of the $\chi^2_{np}$
+level and its **sign flips seed-to-seed**. Overlapping windows make $\chi^2_{np}(T_1)$
+smooth, so OLS treats ~21 dependent points as independent and hugely understates the
+standard error.
+
+```{r expA-detail, eval=TRUE, echo=FALSE}
+d <- quant$detail[["single_argarch"]]
+d <- d[order(-d$R2), ]
+kab(data.frame(
+  seed        = d$seed,
+  beta1       = formatC(d$beta1, format = "e", digits = 2),
+  `OLS p`     = formatC(d$p, format = "e", digits = 1),
+  `R^2`       = round(d$R2, 3),
+  `trend %`   = round(d$trendpct, 1),
+  check.names = FALSE),
+  caption = "Table A2. single_argarch per-seed OLS fit: 'significant' in-sample, yet the slope's sign is a coin-flip across seeds.")
+```
+
+**Interpretation.** Judged across noise realizations, **single-regime
+$\lambda$ is statistically indistinguishable from 0** (`z_across ≈ 0.18`, sign 4/4 and
+5/3). The genuine regime change gives `z_across ≈ 24`, all eight seeds the same sign:
+a real trend. Figure 1 shows the fragility directly.
+
+```{r figA, eval=TRUE, echo=FALSE, out.width="100%", fig.cap="Fig 1. Same single LPPL process + AR-GARCH noise; only the seed differs. The chi^2_np trend flips up/down and T1* scatters 401-1001 (green) - the LR diagnostic is a noise-realization artifact."}
+knitr::include_graphics("01_single_regime_garch_fragility_8seeds.png")
+```
+
+# Experiment B — Robustness to the noise specification
+
+**Motivation.** The clustering spec (`alpha1=0.10`) could drive the result. The
+thesis's *documented* AR-GARCH is AR-dominated (`alpha1≈1e-5`, near-constant
+conditional variance). Re-run the single-vs-regime contrast under Gaussian, the
+thesis spec, and the clustering spec.
+
+```{r expB, eval=RECOMPUTE}
+noise_spec <- function(spec, n, seed, sd = 0.05) switch(spec,
+  gauss   = { set.seed(seed); rnorm(n) * sd },
+  thesis  = gen_argarch(n, sd, seed, alpha1 = 1e-5, beta1 = 0.89),   # AR-dominated (thesis)
+  cluster = gen_argarch(n, sd, seed, alpha1 = 0.10, beta1 = 0.88))   # genuine volatility clustering
+
+build_spec <- function(regime, spec, seed, onset = 600) {
+  if (regime == "single") {
+    eval_lppls(1:N, 8, -0.025, 0.0015, 0.001, tc, 0.6, 8) + noise_spec(spec, N, seed)
+  } else {
+    bub <- eval_lppls(onset:N, 8, -0.025, 0.0015, 0.001, tc, 0.6, 8); set.seed(seed + 1)
+    c(rep(bub[1], onset - 1), bub) + c(noise_spec(spec, onset - 1, seed), rnorm(N - onset + 1) * 0.05)
+  }
+}
+gridB <- expand.grid(regime = c("single","regime"),
+                     spec = c("gauss","thesis","cluster"), seed = seeds, stringsAsFactors = FALSE)
+detB <- do.call(rbind, mclapply(seq_len(nrow(gridB)), function(k) {
+  lag <- run_lr(build_spec(gridB$regime[k], gridB$spec[k], gridB$seed[k]), by = 33)
+  data.frame(regime = gridB$regime[k], spec = gridB$spec[k], beta1 = lag$slope)
+}, mc.cores = 8))
+aggregate(beta1 ~ regime + spec, detB, function(b) abs(mean(b)) / sd(b))   # z_across per cell
+
+## per-window chi^2_np for the single-regime thesis-spec figure (Fig 2) -> canonical object + cache
+s4fig <- do.call(rbind, mclapply(seeds, function(sd) {
+  tb <- run_lr(build_spec("single", "thesis", sd), by = 33)$table
+  data.frame(seed = sd, T1 = tb$T1, chi_np = tb$chi_sq_np)
+}, mc.cores = 8))
+s4fig$seed <- factor(s4fig$seed, levels = seeds)
+saveRDS(s4fig, file.path(D, "s4fig.rds"))
+```
+
+**Result & interpretation.** Recorded `z_across` from the run above:
+
+```{r expB-table, eval=TRUE, echo=FALSE}
+kab(data.frame(
+  regime   = c("single","single","single","regime","regime","regime"),
+  spec     = c("Gaussian","thesis AR-GARCH (a1=1e-5)","clustering (a1=0.10)",
+               "Gaussian","thesis AR-GARCH (a1=1e-5)","clustering (a1=0.10)"),
+  z_across = c(0.17, 0.13, 0.18, 24.1, 19.4, 24.5),
+  check.names = FALSE),
+  caption = "Table B1. z_across is ~0 for single-regime and ~20-24 for regime-change under all three noise specs.")
+```
+
+The conclusion is **spec-robust** — it does not depend on the clustering choice.
+Figure 2 shows the single-regime $\chi^2_{np}$ trend under the thesis's own
+AR-dominated spec: its direction is a coin-flip across seeds.
+
+```{r figB, eval=TRUE, echo=FALSE, out.width="100%", fig.cap="Fig 2. Single LPPL regime + THESIS AR-GARCH spec (alpha1~1e-5). chi^2_np(T1) trend direction is random across seeds (up: 3630/7/42/101; down: 11/19/23/777), all tiny -> lambda ~ 0."}
+g <- ggplot(s4fig, aes(T1, chi_np)) + geom_point(size = 0.7) +
+  geom_smooth(method = "lm", se = FALSE, color = "red", linewidth = 0.5) +
+  facet_wrap(~ seed, scales = "free_y", ncol = 4) +
+  labs(x = expression(T[1]), y = expression(chi[np]^2)) + theme_minimal(base_size = 9)
+suppressMessages(print(g))
+```
+
+# Experiment C — Can Lagrange regularization locate a regime onset?
+
+**Motivation.** §8.4's second objective is *identifying the beginning of an LPPL
+regime*. Construct a genuine regime change — a flat "ranging" prefix (with noise)
+that switches to an LPPLS bubble at a known `onset` — and ask whether $T_1^\ast$
+recovers it, across onsets 300/600/900/1200 and both prefix-noise types.
+
+```{r expC, eval=RECOMPUTE}
+onsets <- c(300, 600, 900, 1200)
+gridC  <- expand.grid(onset = onsets, noise = c("gauss","argarch"),
+                      seed = seeds, stringsAsFactors = FALSE)
+resC <- mclapply(seq_len(nrow(gridC)), function(k) {
+  on <- gridC$onset[k]; nz <- gridC$noise[k]; sd <- gridC$seed[k]
+  lag <- run_lr(build(paste0("regime_", nz), sd, onset = on), t1_max = 1701); tb <- lag$table
+  list(meta  = data.frame(onset = on, noise = nz, seed = sd, slope = lag$slope,
+                          t1star = lag$t1_star, ratio = max(tb$chi_sq_np) / min(tb$chi_sq_np)),
+       chinp = if (sd == 3630) data.frame(onset = on, noise = nz, T1 = tb$T1, chi_np = tb$chi_sq_np))
+}, mc.cores = 8)
+detC   <- do.call(rbind, lapply(resC, `[[`, "meta"))
+facetA <- do.call(rbind, lapply(resC, `[[`, "chinp"))   # seed-3630 curves for Fig 4
+# bias = mean(t1star) - onset ; z_across per (onset, noise) cell
+
+## canonical object used by the display chunks + refresh the cache
+onset <- list(detail = detC, facetA = facetA)
+saveRDS(onset, file.path(D, "onset.rds"))
+```
+
+**Result.**
+
+```{r expC-table, eval=TRUE, echo=FALSE}
+B <- onset$detail
+agg <- do.call(rbind, lapply(split(B, list(B$onset, B$noise)), function(d) data.frame(
+  onset = d$onset[1], noise = d$noise[1],
+  `mean T1*` = round(mean(d$t1star)),
+  bias       = round(mean(d$t1star) - d$onset[1]),
+  z_across   = round(abs(mean(d$slope)) / sd(d$slope), 1),
+  ratio      = round(mean(d$ratio), 2), check.names = FALSE)))
+agg <- agg[order(agg$onset, agg$noise), ]
+kab(agg, row.names = FALSE,
+    caption = "Table C1. Onset recovery: T1* barely moves as the true onset changes (bias = T1* - onset).")
+```
+
+**Interpretation.** `mean T1*` sits at **~510–614 for every true onset** (300 → 1200),
+so the bias swings from **+300** to **−600**: LR does not track where the regime
+starts. Figure 3 shows the estimates running flat vs the dashed perfect-recovery line;
+Figure 4 shows why — $\chi^2_{np}$ hits its noise floor near $T_1\approx500$–600 in
+every case, so the detrended minimum lands there regardless of the true onset (green).
+
+```{r figC, eval=TRUE, echo=FALSE, fig.width=7, fig.height=4.2, fig.cap="Fig 3. Estimated T1* vs true onset. Dashed = perfect recovery; estimates run flat at ~550-600."}
+g3 <- ggplot(B, aes(onset, t1star, color = noise)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey50") +
+  geom_jitter(width = 8, height = 0, alpha = 0.6, size = 1.3) +
+  stat_summary(fun = mean, geom = "line", aes(group = noise)) +
+  stat_summary(fun = mean, geom = "point", size = 3) +
+  labs(x = "true onset", y = expression(T[1]^"*")) + theme_minimal(base_size = 11)
+suppressMessages(print(g3))
+```
+
+```{r figC2, eval=TRUE, echo=FALSE, out.width="95%", fig.height=8, fig.cap="Fig 4. chi^2_np(T1) by true onset (rows) x prefix noise (cols), seed 3630. The curve flattens near T1~500-600 regardless of the green true-onset line."}
+g4 <- ggplot(onset$facetA, aes(T1, chi_np)) + geom_point(size = 0.7) +
+  geom_smooth(method = "lm", se = FALSE, color = "red", linewidth = 0.5) +
+  geom_vline(data = expand.grid(onset = c(300, 600, 900, 1200), noise = c("gauss", "argarch")),
+             aes(xintercept = onset), color = "green3", linewidth = 0.4) +
+  facet_grid(onset ~ noise, scales = "free_y") +
+  labs(x = expression(T[1]), y = expression(chi[np]^2)) + theme_minimal(base_size = 9)
+suppressMessages(print(g4))
+```
+
+# Experiment D — The single-dataset tests, and what each one tests
+
+For real data (SPX) there is no Monte-Carlo — one realization only, so we need a test
+computable from a single series. The candidates fail for *different* reasons, and the
+distinction turns on **which null hypothesis each one targets**:
+
+- $H_0^{\text{in-sample}}$: *there is no linear trend in this particular
+  $\chi^2_{np}(T_1)$ sequence.* A single fixed noise draw generically produces a
+  nonzero slope, so this null is almost always false — and is **not** the relevant one.
+- $H_0^{\text{noise-only}}$: *the observed trend is no larger than the noise process
+  alone produces* (no signal beyond noise). **This is the relevant null.**
+
+OLS and HAC target $H_0^{\text{in-sample}}$; the two bootstraps target
+$H_0^{\text{noise-only}}$. Each failure below is specific to that split.
+
+## OLS — oversized even for its own null
+
+OLS targets $H_0^{\text{in-sample}}$, but is not even valid for it: $\chi^2_{np}(T_1)$
+is smooth and highly autocorrelated (overlapping windows), which violates the OLS
+independence assumption and makes the standard error far too small — so the test
+rejects far more often than its nominal size. As Table A2 showed, it assigns
+$p=2.7\times10^{-16}$ ($R^2=0.90$) to a ~3%-of-level drift whose sign is a coin-flip
+across seeds.
+
+## HAC / Newey–West — correctly sized, but for the wrong null
+
+A heteroskedasticity-and-autocorrelation-consistent SE repairs the OLS defect — it
+inflates the SE for the dependence (for SPX, by 1.5×) — so HAC is a *valid* test of
+$H_0^{\text{in-sample}}$. It still rejects, because the slope genuinely *is* a feature
+of this noise draw. The limitation is not the standard error; it is that
+$H_0^{\text{in-sample}}$ ("is there a trend in *this* series?", answer: yes) is not the
+null we care about ("would a fresh noise draw give a comparable trend?").
+
+```{r expD-hac, eval=RECOMPUTE}
+library(sandwich)
+lag <- run_lr(build("single_argarch", 3630)); fit <- lag$trend; b1 <- lag$slope
+p_ols  <- summary(fit)$coefficients["T1", "Pr(>|t|)"]
+se_ols <- summary(fit)$coefficients["T1", "Std. Error"]
+se_hac <- sqrt(NeweyWest(fit, prewhite = FALSE, adjust = TRUE)["T1", "T1"])   # HAC SE
+p_hac  <- 2 * pt(-abs(b1 / se_hac), df = fit$df.residual)
+c(p_ols = p_ols, p_hac = p_hac, hac_over_ols_SE = se_hac / se_ols)
+```
+
+## Block bootstrap of the residuals — right null, wrong spread
+
+**Idea.** This one targets the relevant null $H_0^{\text{noise-only}}$: resample the
+LPPLS-fit residuals with a **stationary (geometric-length) block bootstrap**, add them
+back to the fitted curve, re-roll, and build a reference distribution of $\beta_1$.
+**Why it fails.** It estimates that distribution far too tightly. Resampling *one*
+realization's residuals rearranges volatility blocks but cannot place clusters in
+genuinely *new* locations, so every resample has a similar volatility profile → the
+reference distribution is ~5× too narrow → it rejects a null that is not false.
+
+```{r expD-block, eval=RECOMPUTE}
+## stationary block bootstrap of a vector (mean block length = mean_block)
+statboot <- function(r, mean_block) {
+  L <- length(r); p <- 1 / mean_block; out <- numeric(L); i <- 1L
+  while (i <= L) {
+    s <- sample.int(L, 1); len <- 1L + rgeom(1, p); j <- 0L
+    while (j < len && i <= L) { out[i] <- r[((s + j - 1L) %% L) + 1L]; i <- i + 1L; j <- j + 1L }
+  }
+  out
+}
+## null via block-resampled residuals: y* = LPPL fit + resampled residuals, then re-roll
+block_boot <- function(y, cfg, B = 100, cores = 8) {
+  lag <- do.call(run_lr, c(list(y), cfg)); b1 <- lag$slope
+  T2  <- length(y) - cfg$hold_out; th <- lag$rolling$fits[[1]]
+  ff  <- eval_pars(th, seq_along(y)); resid <- y[1:T2] - ff[1:T2]
+  mb  <- max(20, round(T2 * 0.05))                      # mean block ~5% of the series
+  b1b <- unlist(mclapply(1:B, function(b) {
+    ys <- ff; ys[1:T2] <- ff[1:T2] + statboot(resid, mb)
+    tryCatch(do.call(run_lr, c(list(ys), cfg))$slope, error = function(e) NA_real_)
+  }, mc.cores = cores))
+  b1b <- b1b[is.finite(b1b)]
+  list(beta1 = b1, null = b1b, null_sd = sd(b1b), z = abs(b1) / sd(b1b),
+       p = mean(abs(b1b) >= abs(b1)))
+}
+cfg_syn <- list(t1_max = 1001, by = 50, hold_out = 100, fh = 150,
+                lo = c(0.1,6,-0.03,0.8), up = c(0.9,13,-1e-14,1e6))
+bb <- block_boot(build("single_argarch", 3630), cfg_syn, B = 200)   # -> z = 8.8, p = 0.000 (false positive)
+```
+
+**Result — the three nulls for the single-regime case** (`beta1_obs = 9.2e-7`, which
+the Monte-Carlo says is *not* significant):
+
+```{r expD-table, eval=TRUE, echo=FALSE}
+kab(data.frame(
+  method     = c("Monte-Carlo (ground truth, needs the model)",
+                 "block bootstrap of residuals",
+                 "parametric AR-GARCH bootstrap (Exp E)"),
+  `null sd`  = c("~5.0e-7", "1.05e-7  (~5x too narrow)", "5.2e-7"),
+  `implied z / p` = c("z_across = 0.18  (not sig.)", "z = 8.8, p = 0.000  (FALSE POSITIVE)",
+                      "z = 1.83, p = 0.10  (not sig.)"),
+  check.names = FALSE),
+  caption = "Table D1. The block bootstrap's null is ~5x too narrow, so it wrongly rejects; the parametric bootstrap (Exp E) matches the Monte-Carlo.")
+```
+
+# Experiment E — The parametric AR-GARCH bootstrap (the valid test)
+
+**Motivation.** To reproduce the *between-realization* variability the block bootstrap
+misses, don't resample the residuals — **fit a noise model and simulate fresh paths**.
+Fit AR(1)-GARCH(1,1) to the LPPLS-fit residuals, simulate new volatility paths
+(clusters in new places), add them to the fitted LPPLS curve, re-roll, and build the
+null of $\beta_1$.
+
+```{r expE, eval=RECOMPUTE}
+library(tsgarch); library(xts)
+
+## fit AR(1) (arima) + GARCH(1,1) (tsgarch) to a residual vector
+fit_argarch <- function(r) {
+  a     <- arima(r, order = c(1,0,0), include.mean = FALSE)
+  innov <- as.numeric(residuals(a))
+  xr    <- xts(innov, order.by = as.Date("2000-01-01") + seq_along(innov) - 1)
+  cf    <- coef(estimate(garch_modelspec(xr, model = "garch", constant = FALSE, order = c(1,1))))
+  list(ar1 = unname(a$coef["ar1"]), om0 = unname(cf["omega"]),
+       alpha1 = unname(cf["alpha1"]), beta1 = unname(cf["beta1"]),
+       persist = unname(cf["alpha1"] + cf["beta1"]))
+}
+## simulate an AR(1)-GARCH(1,1) path from FITTED params (fresh volatility locations)
+sim_ag <- function(n, p, seed, burn = 500) {
+  set.seed(seed)
+  z <- rnorm(n + burn); s2 <- numeric(n + burn); ee <- numeric(n + burn)
+  s2[1] <- p$om0 / max(1e-6, 1 - p$alpha1 - p$beta1); ee[1] <- sqrt(s2[1]) * z[1]
+  for (t in 2:(n + burn)) {
+    s2[t] <- p$om0 + p$alpha1 * ee[t-1]^2 + p$beta1 * s2[t-1]; ee[t] <- sqrt(max(s2[t], 0)) * z[t]
+  }
+  y <- numeric(n + burn); for (t in 2:(n + burn)) y[t] <- p$ar1 * y[t-1] + ee[t]
+  y[(burn+1):(burn+n)]
+}
+## parametric bootstrap: null = LPPL fit + fresh AR-GARCH paths, re-rolled
+param_boot <- function(y, cfg, B = 60, cores = 8) {
+  lag  <- do.call(run_lr, c(list(y), cfg)); b1 <- lag$slope
+  T2   <- length(y) - cfg$hold_out; th <- lag$rolling$fits[[1]]
+  ff   <- eval_pars(th, seq_along(y)); resid <- y[1:T2] - ff[1:T2]
+  pars <- fit_argarch(resid)
+  b1b  <- unlist(mclapply(1:B, function(b)
+    tryCatch(do.call(run_lr, c(list(ff + sim_ag(length(y), pars, seed = 1000 + b)), cfg))$slope,
+             error = function(e) NA_real_), mc.cores = cores))
+  b1b  <- b1b[is.finite(b1b)]
+  list(beta1 = b1, null = b1b, p = mean(abs(b1b) >= abs(b1)),
+       z = abs(b1) / sd(b1b), persist = pars$persist, ar1 = pars$ar1)
+}
+pb_single <- param_boot(build("single_argarch", 3630), cfg_syn)   # validation: should be ~not sig.
+pb_regime <- param_boot(build("regime_argarch", 3630), cfg_syn)   # exposes the IGARCH guard
+
+## The SPX empirical case (Experiment F) is bootstrapped here too, so Table E1 / Fig 5
+## can present all three datasets together; its narrative lives in Experiment F.
+spx <- read.csv(system.file("extdata", "SPX.csv", package = "lpplsF")); names(spx)[1] <- "Date"
+spx$logpris <- log(spx$spindx); y_spx <- spx[11800:14727, "logpris"]
+cfg_spx <- list(t1_max = 501, by = 25, hold_out = 500, fh = 500,
+                lo = c(0.1,6,-0.5,0.8), up = c(0.9,13,-1e-14,1e6))
+pb_spx  <- param_boot(y_spx, cfg_spx, B = 60)                     # empirical case; persist = 0.97
+
+## assemble the canonical bootstrap object used by the display chunks + refresh the cache
+mk <- function(nm, pb) data.frame(dataset = nm, beta1 = pb$beta1, p_param = pb$p,
+                                  z = pb$z, ar1 = pb$ar1, persist = pb$persist)
+pboot <- list(
+  summ = rbind(mk("single_argarch", pb_single), mk("regime_argarch", pb_regime), mk("SPX_e016b", pb_spx)),
+  boot = rbind(data.frame(dataset = "single_argarch", beta1 = pb_single$null),
+               data.frame(dataset = "regime_argarch", beta1 = pb_regime$null),
+               data.frame(dataset = "SPX_e016b",      beta1 = pb_spx$null)))
+saveRDS(pboot, file.path(D, "pboot.rds"))
+```
+
+**Validation & the built-in guard.**
+
+```{r expE-table, eval=TRUE, echo=FALSE}
+s <- pboot$summ
+kab(data.frame(
+  dataset             = s$dataset,
+  `beta1 obs`         = formatC(s$beta1, format = "e", digits = 2),
+  `p (parametric)`    = round(s$p_param, 3),
+  `null z`            = round(s$z, 2),
+  `AR(1)`             = round(s$ar1, 2),
+  `GARCH alpha+beta`  = round(s$persist, 2),
+  valid               = ifelse(s$persist < 0.995, "yes", "NO (IGARCH)"),
+  check.names = FALSE),
+  caption = "Table E1. Parametric AR-GARCH bootstrap. Single matches the MC (not sig.); regime hits IGARCH (guard trips); SPX (Exp F) is valid.")
+```
+
+The **single** case returns `p=0.10` — correctly "not distinguishable", matching the
+MC (Table D1), where the block bootstrap gave `p=0.000`. The **regime** case exposes a
+limit and its guard: the single-LPPL null is misspecified for regime data (the flat
+prefix contaminates the residuals), the GARCH fit hits **$\alpha+\beta=1.00$
+(IGARCH)**, the null explodes, and the test loses all power (`p=0.37`). So
+**$\alpha+\beta\approx1$ is a built-in red flag** that the LPPLS null is misspecified —
+the test is trustworthy only when $\alpha+\beta<1$. Figure 5 shows all three nulls.
+
+```{r figE, eval=TRUE, echo=FALSE, fig.width=7, fig.height=6, fig.cap="Fig 5. Parametric AR-GARCH bootstrap: null of beta1 from fresh simulated paths (grey) vs observed (red); 0 = black. SPX and single: observed only ~90th percentile. Regime: degenerate IGARCH null."}
+DF <- pboot$boot; obs <- pboot$summ
+DF$dataset <- factor(DF$dataset, levels = c("SPX_e016b","regime_argarch","single_argarch"))
+g5 <- ggplot(DF, aes(beta1)) + geom_histogram(bins = 40, fill = "grey70") +
+  geom_vline(xintercept = 0, linewidth = 0.5) +
+  geom_vline(data = obs, aes(xintercept = beta1), color = "red", linewidth = 0.8) +
+  facet_wrap(~ dataset, scales = "free", ncol = 1) +
+  labs(x = expression(beta[1]), y = "count") + theme_minimal(base_size = 10)
+suppressMessages(print(g5))
+```
+
+# Experiment F — The empirical example (SPX / e016b)
+
+**Motivation.** The thesis (finding T-9) reports that on the S&P 500 example Lagrange
+regularization *works*: $\chi^2_{np}$ genuinely decreases ($\beta_1<0$) and
+$T_1^\ast=76$. Does that decrease survive the valid test?
+
+```{r expF, eval=RECOMPUTE}
+## SPX data (rows 11800:14727, calibrate [1, 2428], hold_out=500, fh=500) and cfg_spx were
+## set up in Experiment E, where the parametric bootstrap pb_spx runs. Here: the naive baselines.
+
+## OLS + HAC on the observed rolling chi^2_np (rolling precomputed in misc/, ~44 min)
+roll_spx <- readRDS("../lagrange_rolling_e016b.rds")
+lag_spx  <- lppls_lagrange(roll_spx, p = 0); fit <- lag_spx$trend; b1 <- lag_spx$slope
+se_ols   <- summary(fit)$coefficients["T1","Std. Error"]
+p_ols    <- summary(fit)$coefficients["T1","Pr(>|t|)"]
+se_hac   <- sqrt(NeweyWest(fit, prewhite = FALSE, adjust = TRUE)["T1","T1"])
+p_hac    <- 2 * pt(-abs(b1 / se_hac), df = fit$df.residual)
+
+## canonical object used by the display chunks + refresh the cache
+## (the SPX parametric-bootstrap result, pb_spx, is carried in Experiment E's `pboot`.)
+spx_base <- data.frame(dataset = "SPX_e016b", beta1 = b1, p_OLS = p_ols, p_HAC = p_hac,
+                       hac_ols = se_hac / se_ols)
+saveRDS(spx_base, file.path(D, "spx_baselines.rds"))
+```
+
+**Result.** The SPX residuals fit a *stationary* AR(1)-GARCH(1,1)
+($\alpha+\beta=0.97<1$ — the test is **valid**) with strong mean autocorrelation
+(`ar1=0.98`, near a random walk — exactly the low-frequency structure that
+manufactures spurious trends). The three tests:
+
+```{r expF-table, eval=TRUE, echo=FALSE}
+sp <- spx_base; pp <- pboot$summ[pboot$summ$dataset == "SPX_e016b", ]
+kab(data.frame(
+  test      = c("naive OLS", "HAC / Newey-West", "parametric AR-GARCH bootstrap"),
+  `p-value` = c(formatC(sp$p_OLS, format = "e", digits = 1),
+                formatC(sp$p_HAC, format = "e", digits = 1),
+                formatC(pp$p_param, format = "f", digits = 2)),
+  note = c("invalid: oversized (autocorrelation)",
+           "correctly sized, wrong null (SE 1.5x wider)",
+           "valid (alpha+beta=0.97); observed at ~90th pct of null"),
+  check.names = FALSE),
+  caption = "Table F1. SPX chi^2_np trend under three tests: naive tests overstate significance by ~8 orders of magnitude.")
+```
+
+**Interpretation.** The proper test gives **$p=0.10$: SPX's $\chi^2_{np}$ decrease is
+not statistically distinguishable from a noise artifact.** The naive tests overstate
+significance by ~8 orders of magnitude. **Caveats:** $p=0.10$ is "not significant at
+5%" but *suggestive* (observed slope at ~the 90th percentile of the null), and the
+test is underpowered (21 windows, $B=60$). So the accurate statement is: the evidence
+that LR identifies a genuine, non-noise bias trend on SPX is **weak** — much weaker than the
+thesis figures imply — reinforcing the thesis's own §9 skepticism about the
+interpretability of the Lagrange goodness-of-fit measure.
+
+# Conclusions
+
+1. **$\lambda$ is not distinguishable from 0 for a single-regime LPPLS + noise**
+   process (`z_across≈0.18`), robustly across noise specs; apparent in-sample
+   significance is an autocorrelation artifact (Table A2). *(Quantifies finding T-7.)*
+2. **Lagrange regularization does not locate a regime onset**: $T_1^\ast$ is pinned
+   near where $\chi^2_{np}$ hits the noise floor (~550–600), independent of the true
+   onset (bias +300 to −600).
+3. **The single-dataset trend tests fail for distinct reasons**: OLS is oversized even
+   for its own null; HAC is correctly sized but tests the wrong null (in-sample trend,
+   not noise-only); the block bootstrap targets the right null but with a ~5× too-narrow
+   reference distribution. Only the **parametric AR-GARCH bootstrap** targets the right
+   null *and* estimates it correctly, with **$\alpha+\beta<1$** as a misspecification guard.
+4. **On SPX the LR "success" does not survive** ($p=0.10$), reinforcing rather than
+   overturning the thesis's stance. *(Bears on finding T-9.)*
+
+**Boundaries.** These are inference *diagnostics*, not new LPPLS theory. For the
+thesis, only the §8.4 / §9 figure-and-caption corrections forced by the LR bug are in
+scope; the results here are candidates for a short addendum and for a package
+diagnostic (`lppls_lagrange` companion: parametric AR-GARCH bootstrap + HAC baseline).
+
+# Appendix — reproduction & cost
+
+`fit_lppls(mode="F2")` scans `fh` candidate $t_c$ values (each an inner $(m,\omega)$
+optimization), so per-fit cost scales with `fh`: ~9 s at `fh=150` (synthetic), ~30 s
+at `fh=500` (SPX). A Monte-Carlo/bootstrap over rolling calibrations is thousands of
+such fits; parallelize with `parallel::mclapply(mc.cores = 8)` and run **one job at a
+time** (concurrent heavy jobs contend badly). Result objects used by this report are
+in `data/` (`quant.rds`, `pboot.rds`, `onset.rds`, `s4fig.rds`, `spx_baselines.rds`).
+```

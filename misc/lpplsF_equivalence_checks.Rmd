@@ -1,0 +1,272 @@
+---
+title: "lpplsF equivalence checks: thesis implementation vs. package"
+author: "mhv"
+output: html_document
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Purpose
+
+Before comparing the *downstream* Lagrange regularization, this file verifies the
+layers underneath it, in order of decreasing determinism:
+
+* **Stage A** — model evaluation: `eval_lppls()` vs. `thesis_fns$LPPLS()`.
+* **Stage B** — OLS / objective: each side vs. an independent normal-equation reference.
+* **Stage C** — optimizer at a single fixed start (no random restarts).
+* **Stage D** — full fitter incl. MPL likelihood intervals.
+
+A discrepancy at any stage invalidates the "shared frozen fits" assumption that the
+Lagrange comparison rests on. Stages A and B are deterministic and exact; Stage C is
+deterministic only if the init-search does not overwrite the supplied start; Stage D
+may only be reproducible up to tolerance.
+
+# Setup
+
+```{r message = FALSE, warning = FALSE}
+find_pkg_root <- function(start = getwd()) {
+  path <- normalizePath(start, mustWork = FALSE)
+  while (!file.exists(file.path(path, "DESCRIPTION"))) {
+    parent <- dirname(path)
+    if (parent == path) stop("DESCRIPTION not found above ", start)
+    path <- parent
+  }
+  path
+}
+root <- find_pkg_root()
+
+## Corrected package (exports eval_lppls, SSE, fit_lppls; internal create_beta_calculator)
+devtools::load_all(root)
+
+## Buggy thesis reference, isolated in its own environment
+thesis_fns <- new.env()
+source(file.path(root, "misc", "lpplsF_thesis_functions.R"), local = thesis_fns)
+
+## Package OLS calculator (internal -> namespace-qualified)
+pkg_beta <- lpplsF:::create_beta_calculator()
+```
+
+## Reporting helper
+
+```{r}
+report <- function(label, a, b, tol = 1e-10) {
+  a <- unname(as.numeric(a)); b <- unname(as.numeric(b))
+  dd <- abs(a - b)
+  d  <- if (length(dd) == 0 || all(is.na(dd))) NA_real_ else max(dd, na.rm = TRUE)
+  ok <- isTRUE(d <= tol)
+  cat(sprintf("%-42s max|diff| = %-11s %s\n", label,
+              formatC(d, format = "e", digits = 3), if (ok) "OK" else "**CHECK**"))
+  invisible(ok)
+}
+```
+
+## Independent reference (first-principles OLS + SSE over t < tc)
+
+```{r}
+ref_fit <- function(log_p, t, tc, m, omega) {
+  keep <- t < tc
+  tt <- t[keep]; y <- log_p[keep]
+  tau <- (tc - tt)^m
+  d   <- omega * log(tc - tt)
+  X   <- cbind(1, tau, tau * cos(d), tau * sin(d))
+  beta <- drop(solve(crossprod(X), crossprod(X, y)))
+  fitted <- as.vector(X %*% beta)
+  list(beta = c(A = beta[1], B = beta[2], C1 = beta[3], C2 = beta[4]),
+       sse  = sum((y - fitted)^2))
+}
+```
+
+## Shared e014 data and window
+
+```{r}
+sigma <- 0.05; N <- 2000; tc <- N + 1
+truth <- list(A = 8, B = -0.025, C1 = 0.0015, C2 = 0.001, tc = tc, m = 0.6, omega = 8)
+
+## Reproduce the e014 draw pattern exactly: seed once, then N single draws.
+set.seed(3630)
+sim <- numeric(N)
+for (i in 1:N) {
+  sim[i] <- thesis_fns$LPPLS(i, truth$A, truth$B, truth$C1, truth$C2,
+                             truth$tc, truth$m, truth$omega) + rnorm(1) * sigma
+}
+
+hold_out <- 100; fh <- 150
+time_ID  <- 1:N
+log_pr   <- sim
+t_mod    <- head(time_ID, N - hold_out)        # [T1, T2] modelling window
+y_mod    <- head(log_pr,  N - hold_out)
+
+## Fit settings shared by both fitters (as in e014)
+lower <- c(0.1, 6, -0.03, 0.8); upper <- c(0.9, 13, -1e-14, 1e6)
+tc_init <- length(t_mod) + (fh / 2)            # = N - hold_out + fh/2 in window-local terms
+m_init  <- 0.2; o_init <- 12; num_searches <- 1
+```
+
+# Stage A — model evaluation (deterministic, exact)
+
+Both functions are vectorized over `t` and share the same argument order, so compare
+directly across a grid of nonlinear parameters and all four modes.
+
+```{r}
+grid <- expand.grid(tc = c(2001, 2100), m = c(0.3, 0.6, 0.9), omega = c(6, 8, 12))
+tA   <- 1:1995
+
+for (mode in 0:3) {
+  worst <- 0
+  for (r in seq_len(nrow(grid))) {
+    g <- grid[r, ]
+    ## mode 2/3 use T1/T2 scale params; pass them explicitly and identically.
+    pkg <- eval_lppls(tA, truth$A, truth$B, truth$C1, truth$C2, g$tc, g$m, g$omega,
+                      mode = mode, T1 = 500, T2 = 1990, omega2 = 0.5, omega3 = 0.2)
+    thx <- thesis_fns$LPPLS(tA, truth$A, truth$B, truth$C1, truth$C2, g$tc, g$m, g$omega,
+                            mode = mode, T1 = 500, T2 = 1990, omega2 = 0.5, omega3 = 0.2)
+    worst <- max(worst, max(abs(pkg - thx), na.rm = TRUE))
+  }
+  report(sprintf("Stage A: eval_lppls vs LPPLS (mode %d)", mode), worst, 0)
+}
+```
+
+Mode 0 is the only mode used by e014/e016b and must match to floating point. Modes 1–3
+are not exercised by the reproduction. **Expected divergence:** once the `omega * log(tau)`
+fix is applied to `eval_lppls()` mode 3 (the `+` you confirmed should be `*`), mode 3 will
+report a mismatch here, because the thesis `LPPLS` still carries the original `+`. That
+mismatch is the correction, not a regression — leave the thesis side untouched.
+
+# Stage B — OLS / objective vs. independent reference (deterministic, exact)
+
+## B1: package OLS calculator vs. reference, on a grid
+
+```{r}
+ok <- TRUE
+for (r in seq_len(nrow(grid))) {
+  g  <- grid[r, ]
+  rf <- ref_fit(y_mod, t_mod, g$tc, g$m, g$omega)
+  pb <- pkg_beta(y_mod, t_mod, g$tc, g$m, g$omega)
+  ok <- report(sprintf("Stage B1: pkg beta (tc=%g,m=%g,w=%g)", g$tc, g$m, g$omega),
+               c(pb["A"], pb["B"], pb["C1"], pb["C2"]), rf$beta) && ok
+}
+```
+
+The thesis `beta_calculator` is a closure inside `lpplsF_thesis()` and is not reachable,
+so it is validated indirectly in B2 at the point the thesis fitter actually returns.
+
+## B2: reference SSE matches the reference OLS round-trip
+
+```{r}
+g  <- grid[1, ]
+rf <- ref_fit(y_mod, t_mod, g$tc, g$m, g$omega)
+keep <- t_mod < g$tc
+fitted <- eval_lppls(t_mod[keep], rf$beta["A"], rf$beta["B"], rf$beta["C1"], rf$beta["C2"],
+                     g$tc, g$m, g$omega, mode = 0)
+report("Stage B2: ref SSE vs eval_lppls round-trip",
+       rf$sse, sum((y_mod[keep] - fitted)^2))
+```
+
+
+Constant? Or structured?
+```{r}
+plot(th$mpl_output$LL, type = "l"); lines(pk$mpl_output$LL, col = "red")
+summary(th$mpl_output$LL - pk$mpl_output$LL)   ## constant? or structured?
+```
+
+
+# Stage C — optimizer at a single fixed start (F2, no MPL)
+
+`num_searches = 1` means the supplied init is used with no random restarts; the only
+nondeterminism is the init-search that overwrites `m_init`/`o_init` when they do not yield
+`B < 0`. Run each fitter twice under the same seed to confirm self-reproducibility, then
+compare across implementations.
+
+```{r}
+get_coef <- function(f1) {
+  pick <- function(nm, pos) if (!is.null(f1[[nm]])) unname(f1[[nm]]) else unname(f1[[pos]])
+  c(tc = pick("tc", 1), m = pick("m", 2), omega = pick("omega", 3),
+    A = pick("A", 4), B = pick("B", 5), C1 = pick("C1", 6), C2 = pick("C2", 7),
+    value = if (!is.null(f1[["value"]])) unname(f1[["value"]]) else unname(f1[[9]]))
+}
+
+run_thesis <- function(seed, mode = "F2") {
+  set.seed(seed)
+  thesis_fns$lpplsF_thesis(
+    time_ID = time_ID, log_price = log_pr, fh = fh, hold_out = hold_out,
+    lower = lower, upper = upper, tc_init = tc_init, m_init = m_init, o_init = o_init,
+    num_searches = num_searches, mode = mode, mpl_cutoff = c(0.05, 0.1, 0.5),
+    mpl_plot = 0, fp = 0, cp = 0, sp = 0, tp = c(0,0,0), tp_id = 1, pp = 0, mp = 0,
+    factr = 1e-08, fb = 0)
+}
+run_pkg <- function(seed, mode = "F2") {
+  set.seed(seed)
+  fit_lppls(
+    log_price = log_pr, fh = fh, hold_out = hold_out,
+    lower = lower, upper = upper, tc_init = tc_init, m_init = m_init, o_init = o_init,
+    num_searches = num_searches, mode = mode, mpl_cutoff = c(0.05, 0.1, 0.5),
+    mpl_plot = FALSE, fp = FALSE, cp = FALSE, sp = FALSE, tp = c(0,0,0), tp_id = 1,
+    pp = FALSE, mp = FALSE, factr = 1e-08, fb = FALSE)
+}
+
+## lpplsF_thesis() only completes in MPL mode (mpl_output is assigned solely in
+## the MPL branch). MPL does not alter fit[[1]], so run both in MPL and compare
+## only fit[[1]] -- the optimizer core. The LI machinery is compared in Stage D.
+
+th_fit <- run_thesis(1, "MPL");  th_a <- get_coef(th_fit$fit[[1]])
+pk_fit <- run_pkg(1,    "MPL");  pk_a <- get_coef(pk_fit$fit[[1]])
+th_b <- get_coef(run_thesis(1, "MPL")$fit[[1]])   # self-reproducibility
+pk_b <- get_coef(run_pkg(1,    "MPL")$fit[[1]])
+
+report("Stage C: thesis self-reproducible",  th_a, th_b)
+report("Stage C: package self-reproducible", pk_a, pk_b)
+report("Stage C: thesis vs package fit[[1]]", th_a, pk_a, tol = 1e-6)
+```
+
+If the cross-implementation line mismatches while both self-reproduce, Stage A + B have
+already cleared the model and OLS math, so the gap is in the optimizer wrapper: bounds
+handling, `optim` control, or the init-search overwriting the start differently. Re-run
+the two fits with `fb = TRUE` (uncomment below) to see whether `m_init`/`o_init` were
+overwritten on either side.
+
+```{r eval = FALSE}
+invisible(run_thesis(1, "F2"))   # watch for init overwrite messages
+invisible(run_pkg(1, "F2"))
+```
+
+# Stage D — full fitter incl. MPL (may only match up to tolerance)
+
+Compares the MPL point estimate and likelihood-interval bounds at each cutoff.
+
+```{r}
+th <- th_fit
+pk <- pk_fit
+
+report("Stage D: MPL fit (tc,m,omega,A,B,C1,C2,value)",
+       get_coef(th$fit[[1]]), get_coef(pk$fit[[1]]), tol = 1e-6)
+
+## tc_hat_mpl and the three LI bands. Wrapped defensively in case the
+## mpl_output structures differ between implementations.
+try({
+  report("Stage D: tc_hat_mpl",
+         th$mpl_output$tc_hat_mpl, pk$mpl_output$tc_hat_mpl, tol = 1e-6)
+  for (j in 1:3) {
+    report(sprintf("Stage D: LI[[%d]] (lower, upper)", j),
+           th$mpl_output$LI[[j]], pk$mpl_output$LI[[j]], tol = 1e-6)
+  }
+})
+```
+
+
+
+# Summary
+
+Read top to bottom: the first stage that mismatches localizes the discrepancy. A through
+C should be exact (modulo the intended mode-3 correction); only D is allowed to fall back
+to tolerance. Once every stage here is clean, the fitted vectors are a verified shared
+input, and the Lagrange knob harness can be run on top of them with confidence that any
+remaining difference is genuinely downstream.
+```
+
+
+
+
+
+

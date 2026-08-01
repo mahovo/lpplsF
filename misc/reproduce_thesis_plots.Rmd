@@ -1,0 +1,883 @@
+---
+title: "The `lpplsF` package: a guided tour via the thesis results"
+subtitle: "Fitting, diagnostics and Lagrange regularization for the LPPLS bubble model"
+author: "lpplsF"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+    number_sections: true
+    df_print: kable
+  pdf_document:
+    toc: true
+    toc_depth: 2
+    number_sections: true
+    latex_engine: xelatex
+    df_print: kable
+params:
+  recompute: false   # FALSE (default) = load cached fits from the folder (fast).
+                     # TRUE            = re-run the single-model calibrations and refresh the cache.
+---
+
+```{r setup, include=FALSE}
+## ── Reproducibility switch (set in the YAML header) ──────────────────────────
+##   params$recompute = FALSE : load the cached single-model fits (fast; default).
+##                    = TRUE  : re-run fit_e008 / fit_e009 / spx_fit and refresh the
+##                              cache. The cheap SSE surfaces are always computed live;
+##                              the multi-fit noise / rolling tables are always loaded
+##                              from their pre-computed .rds (see "Reproducibility").
+RECOMPUTE <- isTRUE(params$recompute)
+
+## Pre-computed .rds live in this subdirectory (both saved and loaded here).
+DATA_DIR <- "reproduce_thesis_plots_data"
+dpath    <- function(f) file.path(DATA_DIR, f)
+dir.create(DATA_DIR, showWarnings = FALSE, recursive = TRUE)
+
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+                      fig.width = 7, fig.height = 4.4, dpi = 110, fig.align = "center")
+
+## Load the package from source, wherever this file is knit from.
+pkg_root <- "."
+for (up in c(".", "..", file.path("..", ".."), file.path("..", "..", ".."))) {
+  if (file.exists(file.path(up, "DESCRIPTION"))) { pkg_root <- up; break }
+}
+suppressMessages(pkgload::load_all(pkg_root, quiet = TRUE))
+suppressMessages(library(ggplot2))
+
+## ── Format-aware SSE surface ─────────────────────────────────────────────────
+## The package draws the SSE landscape as an interactive plotly 3-D surface
+## (contour_plot_sse(..., sp = TRUE)$surface_plot, camera eye = (1.1, -1.3, 0.1)).
+## plotly is an HTML widget, so for PDF output we redraw the same SSE grid as a
+## static base-R persp() surface. `show_surface()` picks the right one for the
+## current output format; both use the identical grid and axis labels.
+grid_sse <- function(log_p, t, par, vars, lower, upper, mode = 0, n = 101) {
+  x <- seq(lower[1], upper[1], length.out = n)
+  y <- seq(lower[2], upper[2], length.out = n)
+  f <- function(xx, yy) {
+    xy <- stats::setNames(list(xx, yy), c(vars$x, vars$y))
+    SSE(par = c(par, xy), log_p = log_p, t = t, mode = mode)
+  }
+  z <- t(outer(x, y, Vectorize(f)))               # dim [ny, nx]; z[j, i] = f(x[i], y[j])
+  list(x = x, y = y, z = z, xlab = vars$x, ylab = vars$y)
+}
+
+persp_sse <- function(g, theta = -35, phi = 22) {
+  Z   <- t(g$z)                                   # -> [nx, ny] for persp
+  nrz <- nrow(Z); ncz <- ncol(Z)
+  zf  <- (Z[-1, -1] + Z[-1, -ncz] + Z[-nrz, -1] + Z[-nrz, -ncz]) / 4  # facet height
+  ## Match the plotly HTML surface (its default colorscale is viridisLite::viridis,
+  ## the thesis colours); fall back to base viridis if viridisLite is unavailable.
+  pal <- if (requireNamespace("viridisLite", quietly = TRUE)) {
+    viridisLite::viridis(64)
+  } else {
+    grDevices::hcl.colors(64, "viridis")
+  }
+  graphics::persp(g$x, g$y, Z, theta = theta, phi = phi,
+                  col = pal[cut(zf, 64, labels = FALSE)], border = NA, shade = 0.35,
+                  xlab = g$xlab, ylab = g$ylab, zlab = "",
+                  ticktype = "detailed", nticks = 4,
+                  main = sprintf("SSE w.r.t. %s and %s", g$xlab, g$ylab))
+}
+
+show_surface <- function(log_p, t, par, vars, lower, upper, mode = 0, ylab = vars$y) {
+  if (knitr::is_latex_output()) {
+    g <- grid_sse(log_p, t, par, vars, lower, upper, mode); g$ylab <- ylab
+    persp_sse(g)
+  } else {
+    p <- contour_plot_sse(log_p = log_p, t = t, par = par, vars = vars,
+                          lower = lower, upper = upper,
+                          cp = FALSE, sp = TRUE, mode = mode)$surface_plot
+    if (!identical(ylab, vars$y)) {
+      p <- plotly::layout(p, scene = list(yaxis = list(title = ylab)))
+    }
+    p
+  }
+}
+```
+
+`lpplsF` fits the **log-periodic power-law singularity (LPPLS)** model of Sornette
+and co-authors — a model of the faster-than-exponential, log-periodically
+decorated price growth that can precede a financial-bubble crash. This document
+is a **guided tour of the package**: every calibration, diagnostic and plot it
+offers, demonstrated on the exact examples from the master's thesis the package
+was written for. It doubles as a **reproduction** of the thesis figures, so the
+implementation can be checked against them.
+
+**How to read it.** Each section builds on the previous one, from a single
+calibration to rolling-window bubble-onset detection. Where the package output
+differs from a thesis figure, a boxed note explains why — several are thesis
+bugs the package corrects (flagged `T-5`…`T-8`, cross-referenced in
+`misc/change_list.md`).
+
+**Reproducibility.** The expensive single-model calibrations are cached next to
+this file, so the document knits in seconds. Knit with
+
+```r
+rmarkdown::render("reproduce_thesis_plots.Rmd", params = list(recompute = TRUE))
+```
+
+to re-run them from scratch (a few minutes). The multi-fit noise and
+rolling-window tables (tens of minutes to hours of CPU) are shipped precomputed
+and loaded either way — a reader who wants to regenerate those can, using the
+specification given in each section (see [Reproducibility and the cache]).
+
+**Two output formats.** In HTML the SSE landscapes are interactive `plotly`
+surfaces (drag to rotate; camera preset to the thesis viewpoint
+`eye = (1.1, -1.3, 0.1)`); in PDF the same grids are drawn as static base-R
+`persp()` surfaces.
+
+# The model and its calibration landscape
+
+The core generator is `eval_lppls()`. A single LPPLS trajectory is a
+deterministic function of a critical time $t_c$, the power-law exponent $m$, the
+log-periodic angular frequency $\omega$, and linear coefficients $A, B, C_1, C_2$:
+
+```{r intro-eval}
+str(eval_lppls(1:5, A = 8, B = -0.025, C1 = 0.0015, C2 = 0.001,
+               tc = 1001, m = 0.6, omega = 8))
+```
+
+Calibration means minimizing the sum of squared errors (SSE) between the model
+and observed log-prices over the nonlinear parameters $(t_c, m, \omega)$; the
+linear parameters are profiled out. Before fitting, it helps to *see* that SSE
+landscape. `contour_plot_sse()` evaluates the SSE over a grid of two parameters
+(holding the rest fixed) and returns an interactive surface; here we wrap it in
+`show_surface()` so the same grid also renders statically for PDF.
+
+## Simulated LPPLS(0) data (Figure 6.1)
+
+Thesis figure `fig:lpplsalt1`. A single LPPLS(0) process (the Filimonov–Sornette
+parameterization, `mode = 0`) of length $N = 1000$ plus Gaussian noise
+($\sigma = 0.05$); the SSE is evaluated on the first 910 observations (the
+critical time $t_c = 1001$ lies beyond the fitting window).
+
+| $t_c$ | $m$ | $\omega$ | $A$ | $B$ | $C_1$ | $C_2$ |
+|----:|----:|------:|---:|------:|------:|-----:|
+| 1001 | 0.6 | 8 | 8 | -0.025 | 0.0015 | 0.001 |
+
+```{r fig61-simulate}
+set.seed(3630)
+sigma <- 0.05
+N     <- 1000
+tc    <- N + 1                      # 1001
+sim   <- vapply(1:N, function(i) {
+  eval_lppls(i, A = 8, B = -0.025, C1 = 0.0015, C2 = 0.001,
+             tc = tc, m = 0.6, omega = 8) + rnorm(1) * sigma
+}, numeric(1))
+
+log_p <- sim[1:910]                 # fitting window
+t_obs <- (1:N)[1:910]
+```
+
+### SSE over $m$ and $\omega$ (`lppls0_mo`)
+
+Flat/low for small $m$, a weak depression near $m = 0.6$, then a steep rise for
+larger $m$; only small oscillating variation along $\omega$.
+
+```{r fig61-mo}
+show_surface(
+  log_p = log_p, t = t_obs,
+  par   = list(tc = 1001, A = 8, B = -0.025, C1 = 0.0015, C2 = 0.001),
+  vars  = list(x = "m", y = "omega"),
+  lower = c(0.1, 6), upper = c(0.9, 13), mode = 0
+)
+```
+
+### SSE over $t_c$ and $m$ (`lppls0_tc_m`)
+
+Flat for small $m$, rising strongly for larger $m$; the variation along $t_c$ is
+small for small $m$.
+
+```{r fig61-tc-m}
+show_surface(
+  log_p = log_p, t = t_obs,
+  par   = list(omega = 8, A = 8, B = -0.025, C1 = 0.0015, C2 = 0.001),
+  vars  = list(x = "tc", y = "m"),
+  lower = c(N - 90 + 1, 0.1), upper = c(N + 90, 0.9), mode = 0
+)
+```
+
+### SSE over $t_c$ and $\omega$ (`lppls0_tc_o`)
+
+Many strong oscillations along the $\omega$ direction — the source of the
+multi-modal, hard-to-optimize likelihood that motivates the profile methods below.
+
+```{r fig61-tc-o}
+show_surface(
+  log_p = log_p, t = t_obs,
+  par   = list(m = 0.6, A = 8, B = -0.025, C1 = 0.0015, C2 = 0.001),
+  vars  = list(x = "tc", y = "omega"),
+  lower = c(N - 90 + 1, 1), upper = c(N + 90, 20), mode = 0
+)
+```
+
+## Higher-order Landau variants (Figure 6.2)
+
+Thesis figure `fig:lpplsalt2`. The package also implements the 1st- and 2nd-order
+Landau expansions (`mode = 1`, `mode = 2`). In those modes $C_2$ plays the role
+of the phase $\phi$, so a "$\phi$ axis" is produced by scanning $C_2$ (we relabel
+the axis accordingly via `show_surface(..., ylab = "phi")`).
+
+### $t_c$ and $\phi$, 1st-order Landau (`lppls1_tc_phi`)
+
+This surface uses the **$N = 1000$ mode-0 data from Figure 6.1**, examined under
+the mode-1 $(t_c, \phi)$ landscape — modes 0 and 1 are equivalent
+parameterizations of the same 1st-order Landau LPPL. The phase periodicity
+($2\pi$) produces three local minima across $\phi \in [1, 20]$, plus a boundary
+solution at small $\phi$.
+
+> **Thesis-input fix.** The original generator `surface_plots.Rmd` accidentally
+> fed this plot the $N = 2000$ mode-2 data (an object had been reassigned by an
+> earlier chunk), giving SSE $\approx 1000$ over $t_c \in [1911, 2090]$ — not the
+> thesis figure. The package is correct; only the input needed fixing. Using the
+> intended $N = 1000$ data reproduces the figure ($t_c \in [911, 1090]$).
+
+```{r fig62-lppls1-tc-phi}
+show_surface(
+  log_p = log_p, t = t_obs,
+  par   = list(m = 0.6, omega = 8, A = 8, B = -0.025, C1 = 0.0015),
+  vars  = list(x = "tc", y = "C2"),
+  lower = c(N - 90 + 1, 1), upper = c(N + 90, 20), mode = 1, ylab = "phi"
+)
+```
+
+### A 2nd-order Landau simulation
+
+The 2nd-order model adds a pre-critical regime of length $\Delta t = 500$ with
+secondary frequency $\Delta\omega = 0$. SSE is evaluated on the first 1910 of
+$N = 2000$ observations.
+
+| $t_c$ | $m$ | $\omega$ | $A$ | $B$ | $C_1$ | $C_2$ | $\Delta t$ |
+|----:|----:|------:|---:|------:|------:|-----:|----:|
+| 2001 | 0.6 | 8 | 8 | -0.025 | 0.0015 | 0.001 | 500 |
+
+```{r fig62-simulate}
+set.seed(3630)
+N2  <- 2000
+tc2 <- N2 + 1
+sim2 <- vapply(1:N2, function(i) {
+  eval_lppls(i, A = 8, B = -0.025, C1 = 0.0015, C2 = 0.001,
+             tc = tc2, m = 0.6, omega = 8, mode = 2, T1 = 500) + rnorm(1) * sigma
+}, numeric(1))
+log_p2 <- sim2[1:1910]
+t_obs2 <- (1:N2)[1:1910]
+```
+
+### $t_c$ and $\phi$, 2nd-order Landau (`lppls2_tc_phi`)
+
+Note the wider $t_c$ axis: the pre-critical regime lets parameters wander outside
+the usual LPPLS filter values.
+
+```{r fig62-lppls2-tc-phi}
+show_surface(
+  log_p = log_p2, t = t_obs2,
+  par   = list(m = 0.6, omega = 8, A = 8, B = -0.025, C1 = 0.0015),
+  vars  = list(x = "tc", y = "C2"),
+  lower = c(N2 - 90 + 1, 1), upper = c(N2 + 200, 20), mode = 2, ylab = "phi"
+)
+```
+
+### $t_c$ and $\omega$, 2nd-order Landau (`lppls2_tc_o`)
+
+Even more rugged than the Filimonov variant: narrow, deep ravines and strong
+oscillations along $\omega$.
+
+```{r fig62-lppls2-tc-o}
+show_surface(
+  log_p = log_p2, t = t_obs2,
+  par   = list(m = 0.6, A = 8, B = -0.025, C1 = 0.0015, C2 = 0.001),
+  vars  = list(x = "tc", y = "omega"),
+  lower = c(N2 - 90 + 1, 1), upper = c(N2 + 200, 20), mode = 2
+)
+```
+
+# Fitting a single model
+
+`fit_lppls()` is the workhorse. With `mode = "MPL"` it calibrates by **modified
+profile likelihood**: for each candidate $t_c$ in the search window it profiles
+out $(m, \omega)$ (and the linear parameters), then builds a likelihood interval
+for $t_c$. We calibrate two series from thesis figure `fig:fit` (§8.1): one with
+Gaussian noise (`M1`, experiment `e008`), one with AR(1)-GARCH(1,1) noise (`M2`,
+`e009`). Each holds out the last 200 points, fits on $[1, 1800]$, and searches
+$t_c$ over $[1801, 2100]$; the true $t_c = 2001$.
+
+```{r figfit-helper}
+## One-row tidy estimate table from a fit_lppls() result.
+est_row <- function(fit) {
+  e <- fit$fit[[1]]
+  data.frame(tc = e$tc, m = e$m, omega = e$omega,
+             A = unname(e$A), B = unname(e$B),
+             C1 = unname(e$C1), C2 = unname(e$C2), D = unname(e$D))
+}
+
+## The calibration shared by M1 and M2 (matches thesis e008 / e009). fp/pp/tp
+## ask fit_lppls to also attach the fit plot, the per-tc parameter plot, and the
+## three BFGS trace plots to the returned object.
+fit_call <- function(log_price) {
+  fit_lppls(
+    log_price = log_price, fh = 300, hold_out = 200,
+    lower = c(0.1, 6, -0.03, 0.8), upper = c(0.9, 13, -1e-14, 1e6),
+    tc_init = 1950, m_init = 0.2, o_init = 12, num_searches = 1,
+    mode = "MPL", mpl_cutoff = c(0.05, 0.1, 0.5), factr = 1e-08,
+    fp = TRUE, pp = TRUE, tp = c(1, 1, 1), tp_id = 1
+  )
+}
+```
+
+The Gaussian series is regenerated from `set.seed(3630)`; the GARCH series is
+loaded from `e009_garch_series.rds` (the exact thesis path — `rugarch`'s output
+is version-sensitive and cannot be regenerated bit-for-bit).
+
+```{r figfit-data}
+set.seed(3630)
+Nf <- 2000
+gauss_series <- vapply(1:Nf, function(i) {
+  eval_lppls(i, A = 8, B = -0.025, C1 = 0.0015, C2 = 0.001,
+             tc = Nf + 1, m = 0.6, omega = 8) + rnorm(1) * sigma
+}, numeric(1))
+garch_series <- readRDS(dpath("e009_garch_series.rds"))$log_p
+```
+
+```{r figfit-compute, eval=RECOMPUTE}
+## ~1 minute each (300 profile-likelihood optimizations per series).
+fit_e008 <- fit_call(gauss_series)
+fit_e009 <- fit_call(garch_series)
+```
+
+```{r figfit-save, eval=RECOMPUTE, echo=FALSE}
+saveRDS(fit_e008, dpath("fit_e008.rds"))
+saveRDS(fit_e009, dpath("fit_e009.rds"))
+```
+
+```{r figfit-load, eval=!RECOMPUTE, echo=FALSE}
+fit_e008 <- readRDS(dpath("fit_e008.rds"))
+fit_e009 <- readRDS(dpath("fit_e009.rds"))
+```
+
+## The fit plot
+
+In each plot the blue line is the simulated series, the red curve the estimated
+LPPLS process (up to the estimated $t_c$), the green dashed line marks
+$T_2 = 1800$, and the red dashed line the estimated $t_c$. The package reproduces
+the thesis estimates (Table `lpplsim1`) to machine precision.
+
+> The package fit plot uses English axis labels and a native ggplot legend
+> (`sim data` / `LPPLS fit` / `T2` / `tc_hat`); the thesis figures used Danish
+> labels and a manually composited legend.
+
+### M1 — Gaussian noise (`e008`)
+
+```{r figfit-e008, fig.width=6, fig.height=4}
+fit_e008$fit_plot
+```
+
+```{r figfit-e008-est}
+knitr::kable(est_row(fit_e008), digits = 5,
+             caption = "M1 (Gauss) estimate — cf. Table lpplsim1 (tc_hat = 1996).")
+```
+
+### M2 — AR(1)-GARCH(1,1) noise (`e009`)
+
+```{r figfit-e009, fig.width=6, fig.height=4}
+fit_e009$fit_plot
+```
+
+```{r figfit-e009-est}
+knitr::kable(est_row(fit_e009), digits = 5,
+             caption = "M2 (GARCH) estimate — cf. Table lpplsim1 (tc_hat = 1980).")
+```
+
+## Per-$t_c$ parameter estimates (`param`)
+
+Passing `pp = TRUE` to `fit_lppls()` attaches a parameter plot: each estimated
+parameter (and the objective) as a function of the candidate $t_c$, with the
+objective minimum ($\hat t_c$) marked. $C_1$ and $C_2$ trace near-sinusoidal
+curves that distort far from the true $t_c$ — more so under GARCH noise. No extra
+calibration runs; these reuse the fits above.
+
+### M1 — Gaussian noise
+
+```{r param-e008, fig.width=5, fig.height=8}
+fit_e008$param_plot
+```
+
+### M2 — AR(1)-GARCH(1,1) noise
+
+```{r param-e009, fig.width=5, fig.height=8}
+fit_e009$param_plot
+```
+
+# Reading the optimizer: BFGS traces
+
+Thesis figures `trace` / `fit` / `tracebo` (§8.2). With `tp = c(1, 1, 1)`,
+`fit_lppls()` attaches three trace plots: each shows the SSE landscape for a pair
+of parameters at the estimated $t_c$, overlaid with the BFGS path — red dot at
+the start $(m_{\text{init}}, \omega_{\text{init}}) = (0.2, 12)$, green diamond at
+the estimate.
+
+## $(m, \omega)$ topology
+
+The governing topology for calibration: a single interior minimum BFGS finds
+easily. The GARCH minimum sits slightly further from the true $(0.6, 8)$.
+
+```{r trace-mo-e008, fig.width=6, fig.height=4}
+fit_e008$trace_plot_mo   # Gauss
+```
+
+```{r trace-mo-e009, fig.width=6, fig.height=4}
+fit_e009$trace_plot_mo   # GARCH
+```
+
+## $(B, m)$ topology
+
+Very steep for large $m$ and large negative $B$ (note the SSE scale $\sim 10^8$),
+flat elsewhere. $B$ is in fact determined by $(m, \omega)$; this view treats it
+as free, for illustration.
+
+```{r trace-bm-e008, fig.width=6, fig.height=4}
+fit_e008$trace_plot_bm   # Gauss
+```
+
+```{r trace-bm-e009, fig.width=6, fig.height=4}
+fit_e009$trace_plot_bm   # GARCH
+```
+
+## $(B, \omega)$ topology
+
+SSE varies only in small waves along $\omega$.
+
+> **Thesis bug (T-5).** The thesis `tracebo` figures are inconsistent: their
+> start $B$ ($\approx -0.4$) does not match the $(B, m)$ figures' start $B$
+> ($\approx -1.04$), though both are the same `init_B`, and the drawn path does
+> not converge to the estimate. The package computes the optimization path once
+> and shares it across all three trace plots, so the $(B, \omega)$ trace here is
+> self-consistent (same `init_B` as $(B, m)$; path ends at the estimate).
+
+```{r trace-bo-e008, fig.width=6, fig.height=4}
+fit_e008$trace_plot_bo   # Gauss (corrected)
+```
+
+```{r trace-bo-e009, fig.width=6, fig.height=4}
+fit_e009$trace_plot_bo   # GARCH (corrected)
+```
+
+# Robustness to noise
+
+Thesis figures `fig:noise_param` / `fig:gauss` / `fig:garch` (§8.3). Four
+experiments calibrate the model at **20 noise levels** each: `e010` (M1, Gauss),
+`e012` (M2, Gauss), `e011` (M1, GARCH), `e011b` (M2, GARCH), where M2 is M1 with
+$C_1, C_2$ negated (opposite phase). Each level is an MPL calibration
+(`hold_out = 100`, `fh = 150`).
+
+That is **80 calibrations ($\approx$ 45 min)**, so the per-level result tables
+are shipped precomputed (`noise_*.rds`) and loaded here; see
+[Reproducibility and the cache].
+
+> **Thesis bug (T-6).** The thesis $t_c$ likelihood intervals are too narrow: it
+> computed the per-$t_c$ profile variance $s_{t_c}$ with $m, \omega$ held at the
+> *global* optimum instead of profiling them per $t_c$. The package fixes this
+> (verified to the digit), so the interval bands below are **wider (correct)**.
+> The point estimates and the parameter-vs-$\sigma$ plots are unaffected.
+
+```{r noise-setup}
+noise_e010  <- readRDS(dpath("noise_e010.rds"))   # M1 Gauss
+noise_e012  <- readRDS(dpath("noise_e012.rds"))   # M2 Gauss
+noise_e011  <- readRDS(dpath("noise_e011.rds"))   # M1 GARCH
+noise_e011b <- readRDS(dpath("noise_e011b.rds"))  # M2 GARCH
+
+## Parameter estimates vs noise level.
+param_vs_sd <- function(tab) {
+  d <- tidyr::gather(tab[, c("m", "omega", "A", "B", "C1", "C2", "sd")],
+                     key = "param", value = "estimate", -sd)
+  ggplot(d, aes(sd, estimate)) +
+    geom_line(linewidth = 0.3) +
+    facet_wrap(~param, scales = "free_y", ncol = 1) +
+    theme_minimal()
+}
+
+## tc point estimate (PLE/MPLE) + nested likelihood-interval bands vs noise level.
+li_vs_sd <- function(tab) {
+  cols <- c(LI_05 = "green", LI_10 = "orange", LI_50 = "red",
+            MPLE = "cyan", PLE = "black")
+  ggplot(tab, aes(sd, tc)) +
+    geom_ribbon(aes(ymin = LI5l,  ymax = LI5u,  color = "LI_05"),
+                fill = "grey50", alpha = 0.2, key_glyph = "path") +
+    geom_ribbon(aes(ymin = LI10l, ymax = LI10u, color = "LI_10"),
+                fill = "grey50", alpha = 0.2, key_glyph = "path") +
+    geom_ribbon(aes(ymin = LI50l, ymax = LI50u, color = "LI_50"),
+                fill = "grey50", alpha = 0.2, key_glyph = "path") +
+    geom_line(aes(color = "PLE"), linewidth = 1) +
+    geom_line(aes(y = tc_hat_mpl, color = "MPLE"), linewidth = 0.25) +
+    scale_color_manual(name = NULL, values = cols, breaks = names(cols)) +
+    labs(x = "noise sd", y = quote(hat(t)[c])) +
+    theme_minimal()
+}
+```
+
+## Parameter estimates vs noise level
+
+$\omega, C_1, C_2$ (the log-periodic parameters) are the most noise-sensitive.
+
+### Gauss noise (`e010`)
+
+```{r noise-sd-gauss, fig.width=5, fig.height=8}
+param_vs_sd(noise_e010)
+```
+
+### AR(1)-GARCH(1,1) noise (`e011`)
+
+```{r noise-sd-garch, fig.width=5, fig.height=8}
+param_vs_sd(noise_e011)
+```
+
+## $t_c$ likelihood intervals vs noise level
+
+True $t_c = 2001$. Bands are the corrected (wider) intervals.
+
+### Gauss, M1 (`e010`) and M2 opposite phase (`e012`)
+
+```{r noise-li-e010, fig.width=6, fig.height=4}
+li_vs_sd(noise_e010)
+```
+
+```{r noise-li-e012, fig.width=6, fig.height=4}
+li_vs_sd(noise_e012)
+```
+
+### GARCH, M1 (`e011`) and M2 opposite phase (`e011b`)
+
+```{r noise-li-e011, fig.width=6, fig.height=4}
+li_vs_sd(noise_e011)
+```
+
+```{r noise-li-e011b, fig.width=6, fig.height=4}
+li_vs_sd(noise_e011b)
+```
+
+# Rolling windows and Lagrange regularization
+
+Thesis figure `fig:lagrange2` (§8.4). A bubble has a *beginning*; Lagrange
+regularization (Demos & Sornette, 2019) tries to find it by rolling the
+calibration start $T_1$ forward (fixed end $T_2$) and looking for the window
+where the normalized residual $\chi^2_{np}(T_1)$ stops falling. The package
+splits this into a reusable primitive and cheap post-processing:
+
+* `lppls_rolling()` runs one calibration per $T_1$ (the expensive part);
+* `lppls_lagrange()`, `rolling_tc_plot()`, `rolling_param_plot()`,
+  `chi_sq_np_plot()`, `chi_sq_lambda_plot()` are all post-processing on it.
+
+This only has bite when the series *has* an onset to find: in a pure LPPL process
+every window is already LPPL, so $\chi^2_{np}$ is flat and regularization has
+nothing to correct. So the example is a **dual-regime** series — a flat "ranging"
+segment for $t < 600$ that switches to an LPPL process at $t = 600$
+(`tc = 2001, m = 0.6, omega = 8, A = 8, B = -0.025, C1 = 0.0015, C2 = 0.001`;
+Gaussian noise $\sigma = 0.05$, seed 3630). The rolling approaches the onset from
+below: as $T_1$ climbs toward 600 each window sheds more of the pre-LPPL data and
+the fit tightens, so $\chi^2_{np}$ decreases; once $T_1$ passes 600 the window is
+pure LPPL again and the trend flattens. The rolling ($T_1 = 1 \to 1001$ step 10,
+$T_2 = 1900$; 101 windows, $\approx$ 13 min) is shipped precomputed as
+`lagrange_rolling_regime_gauss.rds`.
+
+```{r regime-gauss-build}
+## The dual-regime series: flat at the LPPL value at t = 600 for t < 600, then
+## the LPPL process itself, with N(0, 0.05^2) noise throughout. The two segments
+## draw their noise from separate seeds -- `seed` for the flat prefix, `seed + 1`
+## for the bubble. Both set.seed() calls are load-bearing: drop either and the
+## cached calibration no longer matches the series.
+N_rg <- 2000
+build_rg <- function(seed, onset = 600) {
+  bub <- eval_lppls(onset:N_rg, 8, -0.025, 0.0015, 0.001, N_rg + 1, 0.6, 8)
+  set.seed(seed + 1)
+  c(rep(bub[1], onset - 1), bub) +
+    c({ set.seed(seed); rnorm(onset - 1) * 0.05 }, rnorm(N_rg - onset + 1) * 0.05)
+}
+
+## Regenerated on both paths: it is instant, and the residual guard below needs
+## the series even when the calibration comes from the cache.
+lp_rg <- build_rg(3630)
+```
+
+```{r regime-gauss-compute, eval=RECOMPUTE}
+## ~14 minutes: 101 windows, each a 150-candidate tc scan (MPL: the likelihood
+## intervals rolling_tc_plot() needs).
+roll_rg <- lppls_rolling(
+  lp_rg,
+  t1_seq = seq(1, 1001, by = 10),
+  hold_out = 100,
+  fh = 150,
+  fit_args = list(
+    lower = c(0.1, 6, -0.03, 0.8),
+    upper = c(0.9, 13, -1e-14, 1e6),
+    m_init = 0.2,
+    o_init = 12,
+    num_searches = 1,
+    mode = "MPL",
+    mpl_cutoff = c(0.05, 0.1, 0.5),
+    factr = 1e7)
+  )
+```
+
+```{r regime-gauss-save, eval=RECOMPUTE, echo=FALSE}
+saveRDS(roll_rg, dpath("lagrange_rolling_regime_gauss.rds"))
+```
+
+```{r regime-gauss-load, eval=!RECOMPUTE, echo=FALSE}
+roll_rg <- readRDS(dpath("lagrange_rolling_regime_gauss.rds"))
+```
+
+```{r regime-gauss-lagrange}
+lag_rg <- lppls_lagrange(roll_rg, p = 0)
+lag_rg
+```
+
+Optimal $T_1^* =$ **`r lag_rg$t1_star`** (true onset 600); $\lambda =$
+`r signif(-lag_rg$slope, 3)` $> 0$ — a genuine bias trend (a pure LPPL series
+would give $\lambda \approx 0$).
+
+```{r regime-gauss-window}
+k_rg  <- which(roll_rg$t1_seq == lag_rg$t1_star)
+T1_rg <- roll_rg$t1_seq[k_rg]        # the calibration start (optimal T1*)
+nc_rg <- roll_rg$table$n_cal[k_rg]
+T2_rg <- T1_rg + nc_rg - 1           # 1900, the calibration end
+f_rg  <- roll_rg$fits[[k_rg]]
+```
+
+## The generated series and its fit
+
+Blue the generated series, red the fitted LPPLS process up to $\hat t_c$, dashed
+markers at the calibration bounds and $\hat t_c$. The series spans two regimes and
+the fit is calibrated on only the later part, so the red curve starts at $T_1^*$ —
+the flat regime is shown but never fitted. `lppls_rolling()` stores the fit in
+window-local time ($t = 1$ at $T_1$), so $\hat t_c$ is shifted by the window offset
+to draw it on the global clock.
+
+```{r regime-gauss-fit, fig.width=6, fig.height=4}
+f_glob    <- f_rg
+f_glob$tc <- f_rg$tc + (T1_rg - 1)   # window-local -> global clock
+
+if ("T1" %in% names(formals(fit_plot))) {
+  ## fit_plot() can bound the fitted curve at T1 (package patch Part 1).
+  fit_plot(f_glob, seq_along(lp_rg), lp_rg, T1 = T1_rg, T2 = T2_rg)
+} else {
+  ## Current dev: fit_plot() starts the curve at the first plotted point, so plot
+  ## the calibrated window, then add the earlier regime and a T1* marker on top.
+  fit_plot(f_glob, T1_rg:roll_rg$n_full, lp_rg[T1_rg:roll_rg$n_full], T2 = T2_rg) +
+    geom_line(data = data.frame(ID = seq_len(T1_rg - 1),
+                                log_p = lp_rg[seq_len(T1_rg - 1)]),
+              aes(ID, log_p), color = "royalblue1") +
+    geom_vline(xintercept = T1_rg, color = "orange", linetype = "dashed")
+}
+```
+
+## Rolling-$T_1$ estimates (`fig:rullendeT1`)
+
+How the $t_c$ estimate and the six parameters move as $T_1$ rolls across the
+onset. For $T_1$ well below 600 the window still contains ranging data and the
+estimates wander; as $T_1$ approaches and passes 600 the window becomes
+predominantly, then purely, LPPL and $\hat t_c$ settles near the true 2001.
+
+```{r regime-gauss-tc, fig.width=6, fig.height=4}
+rolling_tc_plot(roll_rg)
+```
+
+```{r regime-gauss-params, fig.width=5, fig.height=8}
+rolling_param_plot(roll_rg)
+```
+
+## Lagrange regularization (`fig:lagrange2`)
+
+$\chi^2_{np}(T_1)$ with the OLS bias trend (red), then the regularized objective
+$\chi^2_{\lambda^*}(T_1)$ with the optimal $T_1^*$ (green):
+
+```{r regime-gauss-chi-np, fig.width=6, fig.height=4}
+chi_sq_np_plot(lag_rg)
+```
+
+```{r regime-gauss-chi-lambda, fig.width=6, fig.height=4}
+chi_sq_lambda_plot(lag_rg)
+```
+
+## Residuals at $T_1^*$
+
+```{r regime-gauss-guard, echo=FALSE}
+## Load-path integrity: the regenerated series must reproduce the cached
+## calibration exactly (residual SSE == stored sse_cal).
+res_rg <- lp_rg[T1_rg:roll_rg$n_full][seq_len(nc_rg)] -
+  eval_lppls(seq_len(nc_rg), f_rg$A, f_rg$B, f_rg$C1, f_rg$C2,
+             f_rg$tc, f_rg$m, f_rg$omega, mode = 0)
+stopifnot(isTRUE(all.equal(sum(res_rg^2), roll_rg$table$sse_cal[k_rg])))
+```
+
+The residual QQ plot for the window at $T_1^*$. The residuals are near-normal:
+the window at $T_1^*$ lies almost entirely inside the LPPL segment, so the shape
+at a single window does not reveal the regime — the Lagrange signal is in the
+$\chi^2_{np}$ trend *across* windows.
+
+```{r regime-gauss-res, fig.width=6, fig.height=4}
+ggplot(data.frame(y = res_rg), aes(sample = y)) +
+  stat_qq(size = 0.4) +
+  stat_qq_line(color = "red") +
+  geom_hline(yintercept = quantile(res_rg, c(0.1, 0.9)), color = "green") +
+  geom_vline(xintercept = qnorm(c(0.1, 0.9)), color = "green") +
+  labs(x = "theoretical quantiles", y = "sample quantiles") +
+  theme_minimal()
+```
+
+> **Is that decrease real, or a noise artifact?** That question — and the
+> autocorrelation-robust `lr_trend_test()` that answers it — is the subject of a
+> companion demo, `lr_demo.Rmd`, with the full investigation in
+> `lagrange_inference_report.Rmd` (currently in the package's `misc/`
+> directory; this location may change).
+
+# Empirical example: the S&P 500
+
+Chapter 9. The package ships the S&P 500 series (`inst/extdata/SPX.csv`); we
+calibrate on rows 11800:14727 (2009-05-18 to 2020-12-31), fitting on $[1, 2428]$
+(to 2019-01-08) with `hold_out = 500`, `fh = 500`.
+
+```{r spx-data}
+spx <- read.csv(system.file("extdata", "SPX.csv", package = "lpplsF"))
+names(spx)[1] <- "Date"
+spx$Date    <- as.Date(as.character(spx$Date), "%Y%m%d")
+spx$logpris <- log(spx$spindx)
+df_spx <- spx[11800:14727, ]; df_spx$ID <- seq_len(nrow(df_spx))
+n_cal_spx <- nrow(df_spx) - 500    # 2428
+```
+
+```{r spx-compute, eval=RECOMPUTE}
+## ~1-3 minutes (fh = 500 profile-likelihood optimizations).
+spx_fit <- fit_lppls(
+  log_price = df_spx$logpris, fh = 500, hold_out = 500,
+  lower = c(0.1, 6, -0.5, 0.8), upper = c(0.9, 13, -1e-14, 1e6),
+  tc_init = n_cal_spx + 250, m_init = 0.2, o_init = 12, num_searches = 1,
+  mode = "MPL", mpl_cutoff = c(0.05, 0.1, 0.5), factr = 1e-08,
+  fp = TRUE, mpl_plot = TRUE, tp = c(1, 0, 0), pp = TRUE)
+```
+
+```{r spx-save, eval=RECOMPUTE, echo=FALSE}
+saveRDS(spx_fit, dpath("spx_fit.rds"))
+```
+
+```{r spx-load, eval=!RECOMPUTE, echo=FALSE}
+spx_fit <- readRDS(dpath("spx_fit.rds"))
+```
+
+```{r spx-est}
+e <- spx_fit$fit[[1]]
+```
+
+Point estimate reproduces the thesis exactly: PLE $t_c =$
+**`r as.character(df_spx$Date[round(e$tc)])`**, with $m =$ `r round(e$m, 2)`
+(pinned at the upper boundary) and $\omega =$ `r round(e$omega, 2)`.
+
+## Fit plot (`fig:spx1`)
+
+Here we build the fit plot directly (custom `Date` axis) rather than using the
+attached `$fit_plot`, to show working with real dates.
+
+```{r spx-fitplot, fig.width=8, fig.height=4}
+lppls_fit  <- eval_lppls(1:n_cal_spx, e$A, e$B, e$C1, e$C2, e$tc, e$m, e$omega)
+pred_ids   <- (n_cal_spx + 1):floor(e$tc)
+lppls_pred <- eval_lppls(pred_ids, e$A, e$B, e$C1, e$C2, e$tc, e$m, e$omega)
+dfp <- rbind(
+  data.frame(Date = df_spx$Date,              logpris = df_spx$logpris, series = "data"),
+  data.frame(Date = df_spx$Date[1:n_cal_spx], logpris = lppls_fit,      series = "fit"),
+  data.frame(Date = df_spx$Date[pred_ids],    logpris = lppls_pred,     series = "prediction"))
+dfp$series <- factor(dfp$series, levels = c("data", "fit", "prediction"))
+
+ggplot(dfp, aes(Date, logpris, color = series)) +
+  geom_line(linewidth = 0.3) +
+  geom_vline(xintercept = df_spx$Date[n_cal_spx],   color = "royalblue", linetype = "dashed") +
+  geom_vline(xintercept = df_spx$Date[round(e$tc)], color = "red",       linetype = "dashed") +
+  scale_color_manual(name = NULL,
+    values = c(data = "darkgray", fit = "royalblue", prediction = "red")) +
+  labs(x = "Year", y = "log price") +
+  theme_minimal() +
+  theme(legend.position = "inside", legend.position.inside = c(0.01, 0.99),
+        legend.justification.inside = c(0, 1),
+        legend.background = element_rect(
+          fill = grDevices::adjustcolor("white", alpha.f = 0.6), color = NA))
+```
+
+## Modified profile likelihood (`fig:spx2`)
+
+> **Thesis / diagnostic caveat (T-8).** This MPL plot is *degenerate*: the SPX
+> fit is a boundary solution ($m = 0.9$), so $\det(X'X - H) \le 0$ for
+> $t_c > 2499$ and the package's MPL guard returns `NA` there — the curve
+> truncates and the "MPLE" is merely the edge of the defined region. Neither the
+> package's truncation nor the thesis's `abs(det1)` full parabola is dependable
+> for this boundary fit; the MPL diagnostic is simply unreliable here.
+
+```{r spx-mplplot, fig.width=5.5, fig.height=4}
+spx_fit$mpl_plot
+```
+
+## Fit diagnostics (`fig:spxparam`)
+
+The BFGS path slides to the $(m, \omega)$ boundary corner; the per-$t_c$
+parameter panel shows $m$ pinned at 0.9 with jumps where it hits the boundary.
+
+```{r spx-trace, fig.width=6, fig.height=4}
+spx_fit$trace_plot_mo
+```
+
+```{r spx-param, fig.width=5, fig.height=8}
+spx_fit$param_plot
+```
+
+## Lagrange regularization on the S&P 500 (`fig:spxlagrange1`)
+
+Rolling $T_1 = 1 \to 501$ step 25 (21 windows), $T_2 = 2428$ fixed; shipped
+precomputed as `lagrange_rolling_e016b.rds` (21-window MPL fit, $\approx$ 44 min).
+
+```{r e016b-setup}
+roll_e016b <- readRDS(dpath("lagrange_rolling_e016b.rds"))
+lag_e016b  <- lppls_lagrange(roll_e016b, p = 0)
+lag_e016b
+```
+
+Optimal $T_1^* =$ **`r lag_e016b$t1_star`**
+(= `r as.character(df_spx$Date[lag_e016b$t1_star])`), matching the thesis
+(2009-09-02). Here $\beta_1 < 0$, $\lambda > 0$, so the Demos bias trend is
+genuinely present. (The thesis $\chi^2$
+*figures* still need regenerating: their $y$-values $\approx 182$ are the buggy
+4th-moment artifact; the correct scale is $\approx 0.0019$.)
+
+```{r e016b-chi-np, fig.width=6, fig.height=4}
+chi_sq_np_plot(lag_e016b)
+```
+
+```{r e016b-chi-lambda, fig.width=6, fig.height=4}
+chi_sq_lambda_plot(lag_e016b)
+```
+
+```{r e016b-output-T1, fig.width=6, fig.height=4}
+rolling_tc_plot(roll_e016b)   # PLE clean (saturates at the tc bound); MPLE/LI degenerate (T-8)
+```
+
+# Reproducibility and the cache
+
+This document separates three tiers of computation:
+
+1. **Live (always run).** The SSE surfaces (§1) and all data simulation — cheap
+   ($\approx$ 0.3 s per surface), so they are recomputed on every knit.
+2. **Cached single-model fits.** `fit_e008`, `fit_e009` and `spx_fit`
+   ($\approx$ 1–3 min each) are cached as `fit_e008.rds`, `fit_e009.rds`,
+   `spx_fit.rds`. Knit with `params = list(recompute = TRUE)` to re-run and
+   refresh them; the calibration code is shown in full above.
+3. **Precomputed multi-fit tables (reload-only).** The 20-level noise experiments
+   (`noise_*.rds`, $\approx$ 45 min) and the rolling-window calibrations
+   (`lagrange_rolling_*.rds`, tens of minutes to $\approx$ 1 h) are shipped
+   precomputed. Their generators are not yet wired into this file (tracked as a
+   TODO in `misc/change_list.md`); the specification for each is given in its
+   section, so they can be regenerated with `lppls_rolling()` / `fit_lppls()`.
+
+The only input that cannot be regenerated deterministically is the `e009` GARCH
+series (`rugarch` is version-sensitive), so it is always loaded from
+`e009_garch_series.rds`.
+
+```{r session, echo=FALSE}
+sessionInfo()
+```
