@@ -475,6 +475,16 @@ That is **80 calibrations ($\approx$ 45 min)**, so the per-level result tables
 are shipped precomputed (`noise_*.rds`) and loaded here; see
 [Reproducibility and the cache].
 
+> **Provenance.** All four sweeps were produced with the current package. The two
+> Gaussian series regenerate from `set.seed(3630)`; the two GARCH series do *not*
+> (they came from `rugarch::ugarchpath`, whose simulated path is
+> version-dependent), but the 20 original paths survive alongside the thesis
+> experiments, so no re-simulation is needed: `e011` refits the saved path
+> directly, and `e011b` — built from the same seed and spec — refits
+> `LPPLS(-C_1, -C_2)` plus the noise recovered as
+> `saved path - LPPLS(+C_1, +C_2)`. Both reproduce the previously cached point
+> estimates exactly, which confirms the recovered series are the originals.
+
 > **Thesis bug (T-6).** The thesis $t_c$ likelihood intervals are too narrow: it
 > computed the per-$t_c$ profile variance $s_{t_c}$ with $m, \omega$ held at the
 > *global* optimum instead of profiling them per $t_c$. The package fixes this
@@ -493,8 +503,8 @@ param_vs_sd <- function(tab) {
                      key = "param", value = "estimate", -sd)
   ggplot(d, aes(sd, estimate)) +
     geom_line(linewidth = 0.3) +
-    facet_wrap(~param, scales = "free_y", ncol = 1) +
-    theme_minimal()
+    facet_wrap(~param, scales = "free_y", ncol = 1) # +
+    # theme_minimal()
 }
 
 ## tc point estimate (PLE/MPLE) + nested likelihood-interval bands vs noise level.
@@ -716,13 +726,7 @@ at a single window does not reveal the regime — the Lagrange signal is in the
 $\chi^2_{np}$ trend *across* windows.
 
 ```{r regime-gauss-res, fig.width=6, fig.height=4}
-ggplot(data.frame(y = res_rg), aes(sample = y)) +
-  stat_qq(size = 0.4) +
-  stat_qq_line(color = "red") +
-  geom_hline(yintercept = quantile(res_rg, c(0.1, 0.9)), color = "green") +
-  geom_vline(xintercept = qnorm(c(0.1, 0.9)), color = "green") +
-  labs(x = "theoretical quantiles", y = "sample quantiles") +
-  theme_minimal()
+residual_qq_plot(res_rg)
 ```
 
 > **Is that decrease real, or a noise artifact?** That question — and the
@@ -803,12 +807,40 @@ ggplot(dfp, aes(Date, logpris, color = series)) +
 
 ## Modified profile likelihood (`fig:spx2`)
 
-> **Thesis / diagnostic caveat (T-8).** This MPL plot is *degenerate*: the SPX
-> fit is a boundary solution ($m = 0.9$), so $\det(X'X - H) \le 0$ for
-> $t_c > 2499$ and the package's MPL guard returns `NA` there — the curve
-> truncates and the "MPLE" is merely the edge of the defined region. Neither the
-> package's truncation nor the thesis's `abs(det1)` full parabola is dependable
-> for this boundary fit; the MPL diagnostic is simply unreliable here.
+The MPLE coincides with the PLE at $t_c = 2717$ (2020-03-03). The curve is
+defined at 455 of the 500 grid points: `compute_mpl()` returns `NA` wherever
+$\det(X'X - H) \le 0$, which at a constrained optimum carries no guarantee of
+sign.
+
+> **Thesis bug (T-8).** `filimonov_functions.R` builds the matrix $H$ of
+> residual-weighted second derivatives without mirroring its $(\omega, C_1)$ and
+> $(\omega, C_2)$ entries into the lower triangle. $H$ is symmetric by
+> construction, so the thesis's $\det(X'X - H)$ is not the observed-information
+> determinant; on this series its sign is wrong at 473 of the 500 grid points,
+> which truncates the curve at $t_c = 2499$ and collapses all three
+> likelihood-interval upper limits onto that point. The thesis appendix and
+> Filimonov (2017) eq. (37) both give $H$ correctly, so this is an implementation
+> slip, not a derivation error. The package computes $H$ symmetrically.
+
+> **Diagnostic caveat.** The point estimate agrees with the PLE, but the bands are
+> not inference. The SPX fit is a **boundary
+> solution**: $m$ is pinned at its upper bound $0.9$ in the global fit *and* in
+> all 500 per-$t_c$ conditional fits, with $\partial\,\mathrm{SSE}/\partial m < 0$
+> there, so the regularity conditions behind the modified profile likelihood do
+> not hold. $\omega$ sits at a bound at 169 of the 500 conditional fits. And
+> `num_searches = 1` gives one L-BFGS-B run per $t_c$, which lands in an inferior
+> local basin for 394 of the 500 $t_c$ (profile SSE $\approx 8.0$–$8.9$ against
+> $\approx 5.3$–$6.3$ from a multistart search). That is what makes the curve
+> two-tiered rather than smooth: the tiers are $\approx 39$ log-likelihood units
+> apart.
+>
+> So the likelihood intervals trace **where the optimiser succeeded**, not
+> the curvature of the likelihood. All 58 grid points inside LI_05 $= [2696,
+> 2757]$ are good-basin fits (profile SSE 5.287–5.292); every point outside has
+> SSE $\ge 5.464$. The lower edge is exactly where the good-basin run containing
+> the PLE begins (2696), and the upper edge is the end of the *next* such run
+> (2749–2757), which `range()` bridges across the gap at 2745–2748. LI_05 and
+> LI_10 coincide for the same reason. Read the MPLE, not the bands.
 
 ```{r spx-mplplot, fig.width=5.5, fig.height=4}
 spx_fit$mpl_plot
@@ -827,10 +859,32 @@ spx_fit$trace_plot_mo
 spx_fit$param_plot
 ```
 
+## Residual QQ diagnostics (`fig:spxqq`)
+
+Residuals of the SPX calibration ($t < \hat t_c$) against a normal and a fitted
+Student-t reference, both via `residual_qq_plot()`.
+
+```{r spx-qq-setup, echo=FALSE}
+lppls_all <- eval_lppls(df_spx$ID, e$A, e$B, e$C1, e$C2, e$tc, e$m, e$omega)
+res_spx   <- df_spx$logpris[!is.na(lppls_all)] - lppls_all[!is.na(lppls_all)]
+```
+
+```{r spx-qq-norm, fig.width=8, fig.height=4}
+residual_qq_plot(res_spx)
+```
+
+```{r spx-qq-t, fig.width=8, fig.height=4}
+residual_qq_plot(res_spx, "t")
+```
+
 ## Lagrange regularization on the S&P 500 (`fig:spxlagrange1`)
 
 Rolling $T_1 = 1 \to 501$ step 25 (21 windows), $T_2 = 2428$ fixed; shipped
 precomputed as `lagrange_rolling_e016b.rds` (21-window MPL fit, $\approx$ 44 min).
+
+The refit spec is the `spx-fit` call above with `t1_seq = seq(1, 501, 25)`,
+`T2 = 2428`; `lppls_rolling()` sets each window's `tc_init` to
+`n_cal + floor(fh / 2)`, so window 1 reproduces `spx_fit` exactly.
 
 ```{r e016b-setup}
 roll_e016b <- readRDS(dpath("lagrange_rolling_e016b.rds"))
@@ -854,7 +908,7 @@ chi_sq_lambda_plot(lag_e016b)
 ```
 
 ```{r e016b-output-T1, fig.width=6, fig.height=4}
-rolling_tc_plot(roll_e016b)   # PLE clean (saturates at the tc bound); MPLE/LI degenerate (T-8)
+rolling_tc_plot(roll_e016b)   # PLE saturates at the tc bound
 ```
 
 # Reproducibility and the cache

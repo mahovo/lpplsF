@@ -256,6 +256,9 @@ compute_X_matrix <- function(Psi, tc, t) {
 #' H matrix for modified profile likelihood.
 #' Filimonov (2017), equation (37).
 #'
+#' H holds residual-weighted second derivatives, so it is symmetric; both
+#' triangles must be filled or `det(X'X - H)` is not the observed information.
+#'
 #' @keywords internal
 #' @noRd
 compute_H_matrix <- function(Psi, tc, log_p, t) {
@@ -313,6 +316,12 @@ compute_H_matrix <- function(Psi, tc, log_p, t) {
 
   ## (c2, m)
   H[6, 1] <- H[1, 6]
+
+  ## (c1, omega)
+  H[5, 2] <- H[2, 5]
+
+  ## (c2, omega)
+  H[6, 2] <- H[2, 6]
 
   ## The rest is zero
 
@@ -545,8 +554,8 @@ create_param_plot <- function(fit) {
   ggplot2::ggplot(plot_df, ggplot2::aes(x = tc, y = estimate)) +
     ggplot2::geom_point(size = 0.5) +
     ggplot2::geom_vline(xintercept = tc_hat, color = "red") +
-    ggplot2::facet_wrap(~param, scales = "free_y", ncol = 1) +
-    ggplot2::theme_minimal()
+    ggplot2::facet_wrap(~param, scales = "free_y", ncol = 1) # +
+    # ggplot2::theme_minimal()
 }
 
 
@@ -1141,7 +1150,11 @@ rolling_tc_plot <- function(x) {
     ggplot2::scale_color_manual(name = NULL, values = cols, breaks = names(cols)) +
     ggplot2::xlab(quote(T[1])) +
     ggplot2::ylab(quote(hat(t)[c])) +
-    ggplot2::theme_minimal()
+    ggplot2::theme_minimal() +
+    overlay_legend_theme(
+      inside = c(0.99, 0.99),
+      justification = c(1, 1)
+    )
 }
 
 
@@ -1173,6 +1186,71 @@ rolling_param_plot <- function(x) {
   ggplot2::ggplot(d, ggplot2::aes(x = T1, y = estimate)) +
     ggplot2::geom_line(linewidth = 0.3) +
     ggplot2::facet_wrap(~param, scales = "free_y", ncol = 1) +
-    ggplot2::xlab(quote(T[1])) +
+    ggplot2::xlab(quote(T[1])) # +
+    # ggplot2::theme_minimal()
+}
+
+
+#' Residual QQ Plot Diagnostic
+#'
+#' Quantile-quantile plot of calibration residuals against a normal or a fitted
+#' Student-t reference distribution, with reference lines at chosen quantiles. A
+#' general goodness-of-fit diagnostic for the residuals of an LPPLS calibration.
+#'
+#' @param residuals Numeric vector of residuals (length >= 2).
+#' @param distribution Reference distribution for the theoretical quantiles:
+#'   `"normal"` (the default) or `"t"`, a Student-t distribution whose degrees of
+#'   freedom are fitted to `residuals` with [MASS::fitdistr()].
+#' @param ref Numeric probabilities at which to draw the green reference lines
+#'   (default `c(0.1, 0.9)`): horizontal lines at the corresponding sample
+#'   quantiles of `residuals`, vertical lines at the theoretical quantiles.
+#'
+#' @return A `ggplot2` object.
+#'
+#' @seealso [chi_sq_np_plot()], [rolling_tc_plot()]
+#'
+#' @importFrom ggplot2 ggplot aes stat_qq stat_qq_line geom_hline geom_vline labs theme_minimal
+#' @importFrom stats quantile qnorm qt
+#' @export
+#'
+#' @examples
+#' set.seed(1)
+#' residual_qq_plot(rnorm(200))
+#' if (requireNamespace("MASS", quietly = TRUE))
+#'   residual_qq_plot(rt(200, df = 4), distribution = "t")
+residual_qq_plot <- function(residuals, distribution = c("normal", "t"),
+                             ref = c(0.1, 0.9)) {
+  distribution <- match.arg(distribution)
+  if (!is.numeric(residuals) || length(residuals) < 2L) {
+    stop("'residuals' must be a numeric vector of length >= 2.")
+  }
+
+  d     <- data.frame(y = residuals)
+  y_ref <- stats::quantile(residuals, ref, names = FALSE)
+
+  if (distribution == "normal") {
+    x_ref     <- stats::qnorm(ref)
+    qq_layers <- list(
+      ggplot2::stat_qq(size = 0.4),
+      ggplot2::stat_qq_line(color = "red")
+    )
+  } else {
+    if (!requireNamespace("MASS", quietly = TRUE)) {
+      stop("Package 'MASS' is needed for distribution = \"t\"; please install it.")
+    }
+    nu        <- MASS::fitdistr(residuals, "t")$estimate[["df"]]
+    dp        <- list(df = nu)
+    x_ref     <- stats::qt(ref, df = nu)
+    qq_layers <- list(
+      ggplot2::stat_qq(distribution = stats::qt, dparams = dp, size = 0.4),
+      ggplot2::stat_qq_line(distribution = stats::qt, dparams = dp, color = "red")
+    )
+  }
+
+  ggplot2::ggplot(d, ggplot2::aes(sample = y)) +
+    qq_layers +
+    ggplot2::geom_hline(yintercept = y_ref, color = "green3") +
+    ggplot2::geom_vline(xintercept = x_ref, color = "green3") +
+    ggplot2::labs(x = "theoretical quantiles", y = "sample quantiles") +
     ggplot2::theme_minimal()
 }
