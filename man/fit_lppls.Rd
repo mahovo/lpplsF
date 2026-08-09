@@ -219,15 +219,32 @@ after the modelling period, or the first time step of the
 forecasting horizon.}
 }
 }
+\item{log_price}{The input series, so diagnostics that need the data do
+not make the caller supply it again. The calibration slice is
+\code{log_price[seq_len(fit_args$n)]}.}
 \item{fit_args}{List recording the settings this calibration ran with —
-\code{mode}, \code{n} (calibration length), \code{fh}, \code{hold_out}, \code{lower}, \code{upper}
-and \code{num_searches}. Diagnostics need these: whether \code{m = 0.9} is a
-boundary solution or an interior optimum cannot be told from the
-estimate alone.}
+\code{mode}, \code{n} (calibration length), \code{fh}, \code{hold_out}, \code{lower}, \code{upper},
+\code{num_searches} and \code{mpl_cutoff}. Diagnostics need these: whether
+\code{m = 0.9} is a boundary solution or an interior optimum cannot be told
+from the estimate alone.}
 }
 
-The list has class \code{"lppls_fit"}; see \code{\link[=print.lppls_fit]{print.lppls_fit()}} for the
-diagnostic summary.
+The list has class \code{"lppls_fit"}. A calibration can look convincing as a
+plot and still not be worth interpreting, so the object carries its own
+diagnostics:
+\describe{
+\item{\code{\link[=print.lppls_fit]{print.lppls_fit()}}}{Printing the fit reports the estimate together
+with the checks that decide whether to trust it — bounds, optimisation
+basins, search filters and the extent of the modified profile
+likelihood. Warnings are listed only when something is wrong.}
+\item{\code{\link[=summary.lppls_fit]{summary.lppls_fit()}}}{The same as values rather than text, plus the
+curvature check and whether each likelihood interval is closed by the
+likelihood or by the edge of the \code{tc} grid.}
+\item{\code{\link[=plot.lppls_fit]{plot.lppls_fit()}}}{Any plot attached at fit time, or the basin
+views, drawn on demand.}
+\item{\code{\link[=lppls_curvature]{lppls_curvature()}}}{Whether the estimate sits at a genuine interior
+minimum, which is what the modified profile likelihood assumes.}
+}
 }
 \description{
 Fits the Log-Periodic Power Law Singularity (LPPLS) model to log-price
@@ -236,7 +253,7 @@ Supports multiple optimization modes and provides diagnostic outputs.
 }
 \details{
 The LPPLS model is:
-\deqn{y(t) = A + (t_c - t)^m [B + C_1 \cos(\omega \log(t_c - t)) + C_2 \sin(\omega \log(t_c - t))]}
+\deqn{y(t) = A + (t_c - t)^m [B + C_1 \cos(\omega \log(t_c - t)) + C_2 \sin(\omega \log(t_c - t))]}{y(t) = A + (tc - t)^m [B + C1 cos(omega log(tc - t)) + C2 sin(omega log(tc - t))]}
 
 The model has 7 parameters: \eqn{A}, \eqn{B}, \eqn{C_1}, \eqn{C_2} (linear) and \eqn{t_c}, \eqn{m}, \eqn{\omega} (nonlinear).
 The Filimonov calibration exploits this structure by solving for the linear
@@ -287,4 +304,9 @@ of the log-periodic power law model. Physica A, 392(17), 3698-3707.
 Filimonov, V., Demos, G., & Sornette, D. (2017). Modified profile likelihood
 inference and interval forecast of the burst of financial bubbles.
 Quantitative Finance, 17(8), 1167-1186.
+}
+\seealso{
+\code{\link[=print.lppls_fit]{print.lppls_fit()}}, \code{\link[=summary.lppls_fit]{summary.lppls_fit()}}, \code{\link[=plot.lppls_fit]{plot.lppls_fit()}} and
+\code{\link[=lppls_curvature]{lppls_curvature()}} for diagnosing the returned fit; \code{\link[=lppls_rolling]{lppls_rolling()}} to
+recalibrate over a rolling window.
 }

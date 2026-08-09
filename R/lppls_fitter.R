@@ -173,19 +173,36 @@
 #'            forecasting horizon.}
 #'       }
 #'     }
+#'     \item{log_price}{The input series, so diagnostics that need the data do
+#'       not make the caller supply it again. The calibration slice is
+#'       `log_price[seq_len(fit_args$n)]`.}
 #'     \item{fit_args}{List recording the settings this calibration ran with —
-#'       `mode`, `n` (calibration length), `fh`, `hold_out`, `lower`, `upper`
-#'       and `num_searches`. Diagnostics need these: whether `m = 0.9` is a
-#'       boundary solution or an interior optimum cannot be told from the
-#'       estimate alone.}
+#'       `mode`, `n` (calibration length), `fh`, `hold_out`, `lower`, `upper`,
+#'       `num_searches` and `mpl_cutoff`. Diagnostics need these: whether
+#'       `m = 0.9` is a boundary solution or an interior optimum cannot be told
+#'       from the estimate alone.}
 #'   }
 #'
-#'   The list has class `"lppls_fit"`; see [print.lppls_fit()] for the
-#'   diagnostic summary.
+#'   The list has class `"lppls_fit"`. A calibration can look convincing as a
+#'   plot and still not be worth interpreting, so the object carries its own
+#'   diagnostics:
+#'   \describe{
+#'     \item{[print.lppls_fit()]}{Printing the fit reports the estimate together
+#'       with the checks that decide whether to trust it — bounds, optimisation
+#'       basins, search filters and the extent of the modified profile
+#'       likelihood. Warnings are listed only when something is wrong.}
+#'     \item{[summary.lppls_fit()]}{The same as values rather than text, plus the
+#'       curvature check and whether each likelihood interval is closed by the
+#'       likelihood or by the edge of the `tc` grid.}
+#'     \item{[plot.lppls_fit()]}{Any plot attached at fit time, or the basin
+#'       views, drawn on demand.}
+#'     \item{[lppls_curvature()]}{Whether the estimate sits at a genuine interior
+#'       minimum, which is what the modified profile likelihood assumes.}
+#'   }
 #'
 #' @details
 #' The LPPLS model is:
-#' \deqn{y(t) = A + (t_c - t)^m [B + C_1 \cos(\omega \log(t_c - t)) + C_2 \sin(\omega \log(t_c - t))]}
+#' \deqn{y(t) = A + (t_c - t)^m [B + C_1 \cos(\omega \log(t_c - t)) + C_2 \sin(\omega \log(t_c - t))]}{y(t) = A + (tc - t)^m [B + C1 cos(omega log(tc - t)) + C2 sin(omega log(tc - t))]}
 #'
 #' The model has 7 parameters: \eqn{A}, \eqn{B}, \eqn{C_1}, \eqn{C_2} (linear) and \eqn{t_c}, \eqn{m}, \eqn{\omega} (nonlinear).
 #' The Filimonov calibration exploits this structure by solving for the linear
@@ -235,6 +252,10 @@
 #' # View fit plot
 #' print(result$fit_plot)
 #' }
+#'
+#' @seealso [print.lppls_fit()], [summary.lppls_fit()], [plot.lppls_fit()] and
+#'   [lppls_curvature()] for diagnosing the returned fit; [lppls_rolling()] to
+#'   recalibrate over a rolling window.
 #'
 #' @importFrom dplyr arrange filter
 #' @importFrom tibble tibble
@@ -1284,10 +1305,10 @@ plot.lppls_fit <- function(x, which = c("basin", "param_basin", "fit", "mpl",
 #'
 #' Tests whether the calibration sits at a genuine interior minimum. The
 #' modified profile likelihood assumes it does: its correction term uses
-#' \eqn{\det(X'X - H)}, the observed information, which is only guaranteed
+#' \eqn{\det(X'X - H)}{det(X'X - H)}, the observed information, which is only guaranteed
 #' positive at an interior stationary point.
 #'
-#' By the Schur complement, \eqn{\det(X'X - H)} factorises into the determinant
+#' By the Schur complement, \eqn{\det(X'X - H)}{det(X'X - H)} factorises into the determinant
 #' of the linear-parameter block (always positive) times the determinant of the
 #' 2x2 Hessian of the \eqn{(m, \omega)} profile. So the sign of the full
 #' determinant is decided entirely by the curvature in the two nonlinear

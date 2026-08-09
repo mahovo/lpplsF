@@ -26,13 +26,13 @@
   y[(burn + 1):(burn + n)]
 }
 
-#' Autocorrelation-robust significance test for the Lagrange \eqn{\chi^2_{np}} trend
+#' Autocorrelation-robust significance test for the Lagrange \eqn{\chi^2_{np}}{chi^2_np} trend
 #'
 #' Assesses whether the decreasing "bias" trend that Lagrange regularization acts on
-#' (the slope \eqn{\beta_1} of \eqn{\chi^2_{np}(T_1)} against the window start
+#' (the slope \eqn{\beta_1}{beta_1} of \eqn{\chi^2_{np}(T_1)}{chi^2_np(T1)} against the window start
 #' \eqn{T_1}) is statistically distinguishable from what the estimation noise produces
 #' on its own. Three tests are reported: a naive OLS \eqn{p}-value (invalid here,
-#' because adjacent rolling windows overlap and \eqn{\chi^2_{np}(T_1)} is heavily
+#' because adjacent rolling windows overlap and \eqn{\chi^2_{np}(T_1)}{chi^2_np(T1)} is heavily
 #' autocorrelated); a heteroskedasticity- and autocorrelation-consistent (Newey--West)
 #' \eqn{p}-value; and a **parametric AR(1)--GARCH(1,1) bootstrap**, which is the
 #' appropriate test.

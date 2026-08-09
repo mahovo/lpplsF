@@ -857,7 +857,7 @@ create_trace_plot <- function(
 #' Plot a Fitted LPPLS Model
 #'
 #' Draws the observed log-price series together with the fitted LPPLS curve, a
-#' vertical marker at the estimated critical time \eqn{\hat{t}_c}, and---when the
+#' vertical marker at the estimated critical time \eqn{\hat{t}_c}{tc-hat}, and---when the
 #' calibration end is supplied via `T2`---a marker at \eqn{T_2}. Colour and line
 #' type are merged into a single legend (`sim data` / `LPPLS fit` / `T2` /
 #' `tc_hat`). This is the same builder [fit_lppls()] attaches as its `fit_plot`
@@ -872,7 +872,7 @@ create_trace_plot <- function(
 #'   calibrates).
 #' @param T2 Numeric or `NULL`. The calibration-window end. When supplied, a
 #'   dashed marker is drawn there and added to the legend; when `NULL` (default)
-#'   only the \eqn{\hat{t}_c} marker is shown.
+#'   only the \eqn{\hat{t}_c}{tc-hat} marker is shown.
 #'
 #' @return A `ggplot2` object.
 #'

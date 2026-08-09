@@ -20,14 +20,14 @@ calibrates).}
 
 \item{T2}{Numeric or \code{NULL}. The calibration-window end. When supplied, a
 dashed marker is drawn there and added to the legend; when \code{NULL} (default)
-only the \eqn{\hat{t}_c} marker is shown.}
+only the \eqn{\hat{t}_c}{tc-hat} marker is shown.}
 }
 \value{
 A \code{ggplot2} object.
 }
 \description{
 Draws the observed log-price series together with the fitted LPPLS curve, a
-vertical marker at the estimated critical time \eqn{\hat{t}_c}, and---when the
+vertical marker at the estimated critical time \eqn{\hat{t}_c}{tc-hat}, and---when the
 calibration end is supplied via \code{T2}---a marker at \eqn{T_2}. Colour and line
 type are merged into a single legend (\verb{sim data} / \verb{LPPLS fit} / \code{T2} /
 \code{tc_hat}). This is the same builder \code{\link[=fit_lppls]{fit_lppls()}} attaches as its \code{fit_plot}

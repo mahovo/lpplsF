@@ -13,7 +13,7 @@ chi_sq_lambda_plot(x)
 A \code{ggplot2} object.
 }
 \description{
-Plots \eqn{\chi^2_{\lambda^*}(T_1)} against the rolling start time \eqn{T_1}
+Plots \eqn{\chi^2_{\lambda^*}(T_1)}{chi^2_lambda*(T1)} against the rolling start time \eqn{T_1}
 with a vertical line (green) at the optimal start time \eqn{T_1^*}.
 Reproduces the \verb{*_chi_sq_lambda_plot} figure from the thesis.
 }

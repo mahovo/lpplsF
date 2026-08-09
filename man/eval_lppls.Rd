@@ -65,7 +65,7 @@ critical points (bubbles/crashes).
 }
 \details{
 The standard LPPLS model (mode = 0) is:
-\deqn{LPPLS(t) = A + (t_c - t)^m [B + C_1 \cos(\omega \log(t_c - t)) + C_2 \sin(\omega \log(t_c - t))]}
+\deqn{LPPLS(t) = A + (t_c - t)^m [B + C_1 \cos(\omega \log(t_c - t)) + C_2 \sin(\omega \log(t_c - t))]}{LPPLS(t) = A + (tc - t)^m [B + C1 cos(omega log(tc - t)) + C2 sin(omega log(tc - t))]}
 
 This model captures both the power law growth towards a critical time and the
 log-periodic oscillations that are characteristic of speculative bubbles.

@@ -20,11 +20,11 @@ bounds, and a \code{classification} of \code{"minimum"}, \code{"saddle"} or \cod
 \description{
 Tests whether the calibration sits at a genuine interior minimum. The
 modified profile likelihood assumes it does: its correction term uses
-\eqn{\det(X'X - H)}, the observed information, which is only guaranteed
+\eqn{\det(X'X - H)}{det(X'X - H)}, the observed information, which is only guaranteed
 positive at an interior stationary point.
 }
 \details{
-By the Schur complement, \eqn{\det(X'X - H)} factorises into the determinant
+By the Schur complement, \eqn{\det(X'X - H)}{det(X'X - H)} factorises into the determinant
 of the linear-parameter block (always positive) times the determinant of the
 2x2 Hessian of the \eqn{(m, \omega)} profile. So the sign of the full
 determinant is decided entirely by the curvature in the two nonlinear

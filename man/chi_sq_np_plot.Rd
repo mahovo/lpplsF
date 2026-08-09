@@ -13,7 +13,7 @@ chi_sq_np_plot(x)
 A \code{ggplot2} object.
 }
 \description{
-Plots \eqn{\chi^2_{np}(T_1)} against the rolling start time \eqn{T_1} with the
+Plots \eqn{\chi^2_{np}(T_1)}{chi^2_np(T1)} against the rolling start time \eqn{T_1} with the
 fitted linear bias trend overlaid (red line). Reproduces the
 \verb{*_chi_sq_np_plot} figure from the thesis.
 }

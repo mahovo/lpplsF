@@ -9,7 +9,7 @@ lppls_lagrange(x, p = 7)
 \arguments{
 \item{x}{An object of class \code{"lppls_rolling"} from \code{\link[=lppls_rolling]{lppls_rolling()}}.}
 
-\item{p}{Integer, number of parameters subtracted in the \eqn{\chi^2_{np}}
+\item{p}{Integer, number of parameters subtracted in the \eqn{\chi^2_{np}}{chi^2_np}
 denominator (default 7). Use \code{p = 0} to omit the correction (thesis /
 Demos & Sornette (2019) form).}
 }
@@ -34,27 +34,27 @@ Demos & Sornette (2019). It is a post-processing step on a rolling-window
 calibration (\code{\link[=lppls_rolling]{lppls_rolling()}}): the per-window residual sums of squares are
 corrected for the linear bias induced by the shrinking number of
 observations, and \eqn{T_1^*} is the minimizer of the regularized objective
-\eqn{\chi^2_{\lambda^*}(T_1)}.
+\eqn{\chi^2_{\lambda^*}(T_1)}{chi^2_lambda*(T1)}.
 }
 \details{
 For the rolling calibration \code{x}, the normalized residual sum of squares is
-\deqn{\chi^2_{np}(T_1) = \frac{1}{n_{cal}(T_1) - p} \sum_{i = T_1}^{T_2} r_i^2,}
+\deqn{\chi^2_{np}(T_1) = \frac{1}{n_{cal}(T_1) - p} \sum_{i = T_1}^{T_2} r_i^2,}{chi^2_np(T1) = 1/(n_cal(T1) - p) * sum of r_i^2 over i = T1..T2,}
 where the sum is the calibration-region residual sum of squares
-(\code{x$table$sse_cal}), \eqn{n_{cal}(T_1)} is the window's calibration length and
+(\code{x$table$sse_cal}), \eqn{n_{cal}(T_1)}{n_cal(T1)} is the window's calibration length and
 \eqn{p} is the number of parameters subtracted. \code{p = 0} reproduces the
 \dQuote{p-correction omitted} form used by Demos & Sornette (2019) and in the
 thesis; \code{p = 7} (the default) subtracts the full LPPLS parameter count
 \eqn{\Psi = (t_c, m, \omega, A, B, C_1, C_2)}.
 
 The bias is modelled as a linear trend
-\eqn{\chi^2_{np}(T_1) = \beta_0 + \beta_1 T_1} fitted by ordinary least
+\eqn{\chi^2_{np}(T_1) = \beta_0 + \beta_1 T_1}{chi^2_np(T1) = beta_0 + beta_1 T1} fitted by ordinary least
 squares. The regularized objective is
 \deqn{\chi^2_{\lambda^*}(T_1) = \chi^2_{np}(T_1) - \lambda^* (T_2 - T_1),
-  \qquad \lambda^* = -\beta_1,}
+  \qquad \lambda^* = -\beta_1,}{chi^2_lambda*(T1) = chi^2_np(T1) - lambda* (T2 - T1),  lambda* = -beta_1,}
 which has zero trend in \eqn{T_1}. The optimal start time is
-\eqn{T_1^* = \arg\min_{T_1} \chi^2_{\lambda^*}(T_1)}. Adding a constant to the
+\eqn{T_1^* = \arg\min_{T_1} \chi^2_{\lambda^*}(T_1)}{T1* = the T1 minimising chi^2_lambda*(T1)}. Adding a constant to the
 regularized objective does not change its minimizer, so the choice of
-\eqn{T_2} in the \eqn{-\lambda^*(T_2 - T_1)} term shifts the curve vertically
+\eqn{T_2} in the \eqn{-\lambda^*(T_2 - T_1)}{-lambda*(T2 - T1)} term shifts the curve vertically
 but leaves \eqn{T_1^*} unchanged.
 }
 \examples{

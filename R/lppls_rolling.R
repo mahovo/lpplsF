@@ -12,7 +12,7 @@
 #' `log_price[T1:length(log_price)]` via [fit_lppls()]. The last `hold_out`
 #' observations of every window are reserved for the forecast/validation region,
 #' so the calibration region is the absolute interval \eqn{[T_1, T_2]} with the
-#' common end \eqn{T_2 = \texttt{length(log\_price)} - \texttt{hold\_out}} held
+#' common end \eqn{T_2 = \texttt{length(log\_price)} - \texttt{hold\_out}}{T2 = length(log_price) - hold_out} held
 #' fixed across windows.
 #'
 #' Because `fit_lppls()` re-indexes each window to start at 1, all per-window
