@@ -16,6 +16,24 @@
 }
 
 
+#' How many fits in a per-fit table sit at an optimisation bound
+#'
+#' Vectorised companion to `.boundary_pars()`, applied to a `fit[[2]]` table: in
+#' `"F2"`/`"MPL"` mode its rows are the per-`tc` conditional fits, in `"F1"` mode
+#' the random restarts. A point estimate away from the bounds can still rest on a
+#' profile that is pinned almost everywhere, which is what this counts.
+#'
+#' @return Named integer vector, `c(m = , omega = )`.
+#'
+#' @keywords internal
+#' @noRd
+.boundary_counts <- function(tbl, lower, upper, tol = 1e-3) {
+  at <- function(x, lo, hi) (x - lo) <= tol * (hi - lo) | (hi - x) <= tol * (hi - lo)
+  c(m     = sum(at(tbl$m,     lower[1], upper[1]), na.rm = TRUE),
+    omega = sum(at(tbl$omega, lower[2], upper[2]), na.rm = TRUE))
+}
+
+
 
 
 

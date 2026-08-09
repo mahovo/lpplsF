@@ -219,7 +219,15 @@ after the modelling period, or the first time step of the
 forecasting horizon.}
 }
 }
+\item{fit_args}{List recording the settings this calibration ran with —
+\code{mode}, \code{n} (calibration length), \code{fh}, \code{hold_out}, \code{lower}, \code{upper}
+and \code{num_searches}. Diagnostics need these: whether \code{m = 0.9} is a
+boundary solution or an interior optimum cannot be told from the
+estimate alone.}
 }
+
+The list has class \code{"lppls_fit"}; see \code{\link[=print.lppls_fit]{print.lppls_fit()}} for the
+diagnostic summary.
 }
 \description{
 Fits the Log-Periodic Power Law Singularity (LPPLS) model to log-price

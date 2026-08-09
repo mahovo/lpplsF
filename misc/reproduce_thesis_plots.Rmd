@@ -1,5 +1,5 @@
 ---
-title: "The `lpplsF` package: a guided tour via the thesis results"
+title: "The `lpplsF` package: A guided tour"
 subtitle: "Fitting, diagnostics and Lagrange regularization for the LPPLS bubble model"
 author: "lpplsF"
 date: "`r Sys.Date()`"
@@ -389,6 +389,48 @@ knitr::kable(est_row(fit_e009), digits = 5,
              caption = "M2 (GARCH) estimate — cf. Table lpplsim1 (tc_hat = 1980).")
 ```
 
+## Reading the fit: `print()` diagnostics
+
+A calibration can look perfectly good as a plot and still be untrustworthy. The
+`print()` method for `fit_lppls()` reports the estimate together with the checks
+that decide whether it means anything — this is the fastest way to find out
+whether a fit is worth interpreting.
+
+```{r figfit-print}
+fit_e008
+```
+
+Line by line:
+
+* **Bounds.** $(m, \omega)$ are optimised inside a box. If the optimum sits *on*
+  a wall, the SSE is still falling in that direction and the estimate is a
+  constrained one — the regularity conditions behind the modified profile
+  likelihood do not hold, and its intervals mean nothing. The check is reported
+  twice: for the point estimate, and as a count across all the per-$t_c$
+  conditional fits. The second matters on its own, because an interior point
+  estimate can still rest on a profile that is pinned nearly everywhere.
+* **Basins.** Each candidate $t_c$ gets its own $(m, \omega)$ search, and with
+  few restarts some land in a worse local optimum than others. Distance from the
+  best SSE will not detect this — the conditional SSE *should* rise away from the
+  optimal $t_c$, so a healthy profile also has fits well above the minimum. What
+  betrays a failed search is a **gap**: the sorted SSEs falling into a good
+  cluster and a distinctly worse one. The reported number is the largest gap
+  between consecutive sorted values as a share of the total spread, which is
+  scale-free and near zero for a smooth profile.
+* **Filters.** How many candidate fits were rejected for $B \ge 0$ or for
+  damping below its floor — the two constraints `fit_lppls()` enforces
+  internally, otherwise visible only as warnings while the fit runs.
+* **MPL.** How much of the $t_c$ grid the modified profile likelihood is defined
+  on. `compute_mpl()` returns `NA` wherever $\det(X'X - H) \le 0$, which at a
+  constrained optimum carries no guarantee of sign.
+
+A `Diagnostics:` block of `!` lines appears only when something is wrong, so a
+clean fit prints none — as here. §5 shows one that prints three.
+
+```{r figfit-print-e009}
+fit_e009
+```
+
 ## Per-$t_c$ parameter estimates (`param`)
 
 Passing `pp = TRUE` to `fit_lppls()` attaches a parameter plot: each estimated
@@ -776,6 +818,29 @@ Point estimate reproduces the thesis exactly: PLE $t_c =$
 **`r as.character(df_spx$Date[round(e$tc)])`**, with $m =$ `r round(e$m, 2)`
 (pinned at the upper boundary) and $\omega =$ `r round(e$omega, 2)`.
 
+### What `print()` says about this one
+
+§2 introduced the diagnostics on a healthy calibration, which printed no
+warnings. This is the contrasting case, and it is worth reading before any of the
+figures below:
+
+```{r spx-print}
+spx_fit
+```
+
+Three flags, and every caveat in the rest of this section follows from them. The
+estimate is a **boundary solution**, and not marginally — $m$ is at its upper
+bound in the point estimate *and* in every conditional fit, with
+$\partial\,\mathrm{SSE}/\partial m < 0$ there, so the constraint is genuinely
+active and the regularity conditions behind the modified profile likelihood do
+not hold. Most of the conditional fits sit in a **distinctly inferior basin**,
+which is why the MPL curve below is two-tiered rather than smooth, and why
+`num_searches = 1` is the wrong setting for this series. And the MPL is
+**undefined on part of the grid**, so the curve has gaps the likelihood intervals
+cannot see across.
+
+None of this is visible in the point estimate, which looks entirely ordinary.
+
 ## Fit plot (`fig:spx1`)
 
 Here we build the fit plot directly (custom `Date` axis) rather than using the
@@ -807,10 +872,9 @@ ggplot(dfp, aes(Date, logpris, color = series)) +
 
 ## Modified profile likelihood (`fig:spx2`)
 
-The MPLE coincides with the PLE at $t_c = 2717$ (2020-03-03). The curve is
-defined at 455 of the 500 grid points: `compute_mpl()` returns `NA` wherever
-$\det(X'X - H) \le 0$, which at a constrained optimum carries no guarantee of
-sign.
+The MPLE coincides with the PLE, at 2020-03-03. `compute_mpl()` returns `NA`
+wherever $\det(X'X - H) \le 0$ — which at a constrained optimum carries no
+guarantee of sign — hence the gaps the `MPL:` line counted above.
 
 > **Thesis bug (T-8).** `filimonov_functions.R` builds the matrix $H$ of
 > residual-weighted second derivatives without mirroring its $(\omega, C_1)$ and
@@ -823,28 +887,208 @@ sign.
 > slip, not a derivation error. The package computes $H$ symmetrically.
 
 > **Diagnostic caveat.** The point estimate agrees with the PLE, but the bands are
-> not inference. The SPX fit is a **boundary
-> solution**: $m$ is pinned at its upper bound $0.9$ in the global fit *and* in
-> all 500 per-$t_c$ conditional fits, with $\partial\,\mathrm{SSE}/\partial m < 0$
-> there, so the regularity conditions behind the modified profile likelihood do
-> not hold. $\omega$ sits at a bound at 169 of the 500 conditional fits. And
-> `num_searches = 1` gives one L-BFGS-B run per $t_c$, which lands in an inferior
-> local basin for 394 of the 500 $t_c$ (profile SSE $\approx 8.0$–$8.9$ against
-> $\approx 5.3$–$6.3$ from a multistart search). That is what makes the curve
-> two-tiered rather than smooth: the tiers are $\approx 39$ log-likelihood units
-> apart.
+> not inference — the `Bounds:` and `Basins:` lines above already say why. Two
+> consequences the printed summary does not spell out. First, the basin split is
+> what makes the curve **two-tiered** rather than smooth: the two tiers are
+> $\approx 39$ log-likelihood units apart, so the plot below is not one curve but
+> two.
 >
-> So the likelihood intervals trace **where the optimiser succeeded**, not
-> the curvature of the likelihood. All 58 grid points inside LI_05 $= [2696,
-> 2757]$ are good-basin fits (profile SSE 5.287–5.292); every point outside has
-> SSE $\ge 5.464$. The lower edge is exactly where the good-basin run containing
-> the PLE begins (2696), and the upper edge is the end of the *next* such run
-> (2749–2757), which `range()` bridges across the gap at 2745–2748. LI_05 and
-> LI_10 coincide for the same reason. Read the MPLE, not the bands.
+> Second, and the reason to distrust the bands specifically: the likelihood
+> intervals here trace **where the optimiser succeeded**, not the curvature of the
+> likelihood. Every grid point inside LI_05 is a good-basin fit and every point
+> outside it is not; its lower edge is exactly where the good-basin run containing
+> the PLE begins, and its upper edge is the end of the *next* such run, which
+> `range()` bridges across the gap between them. LI_05 and LI_10 coincide for the
+> same reason. The relative-scale plot below makes this visible: only LI_50 has a
+> crossing. **Read the MPLE, not the bands.**
 
 ```{r spx-mplplot, fig.width=5.5, fig.height=4}
 spx_fit$mpl_plot
 ```
+
+### The same curve on a relative scale
+
+The absolute level of the log MPL carries no information. It is a log *density*
+— here the residual $\sigma \approx 0.047$, so the density at its mode is
+$\approx 8.6$ and the per-observation log is positive; multiplied by $n = 2428$
+that is the $\approx 7000$ on the axis above. The formula also drops the additive
+constant $-\tfrac{n}{2}\log 2\pi - \tfrac{n}{2}$, which cancels everywhere it is
+used. What the likelihood intervals actually test is the *difference*
+$R = \log\mathrm{MPL} - \max\log\mathrm{MPL}$ against $\log(\text{cutoff})$, and
+`compute_mpl()` already returns it as `mpl_output$R`.
+
+Plotting $R$ and restricting the view to the band the cutoffs live in turns the
+intervals from something asserted into something visible. The package's
+`create_mpl_plot()` draws the absolute curve, so this view is built here — a
+fixed zoom would be wrong for the well-behaved fits of §2, whose curves lie
+within a couple of log units of their maximum and need no zoom at all.
+
+```{r spx-mpl-rel-helper}
+## R = log MPL - max(log MPL), zoomed to the cutoff band. The vertical markers
+## are the same five the package draws; the horizontal lines are the cutoffs
+## themselves, so each interval can be read off where the curve crosses one.
+mpl_rel_plot <- function(fit_obj, cutoff, pad = 1.2) {
+  mo <- fit_obj$mpl_output
+  ## fit_args is absent from caches written before fit_lppls() recorded it, so
+  ## fall back to the tc grid, which starts at n + 1.
+  n <- if (is.null(fit_obj$fit_args$n)) {
+    min(fit_obj$fit[[2]]$tc) - 1
+  } else {
+    fit_obj$fit_args$n
+  }
+
+  cols <- c(PLE = "blue", MPLE = "blue", LI_05 = "green3",
+            LI_10 = "orange", LI_50 = "red")
+  ltys <- c(PLE = "solid", MPLE = "dashed", LI_05 = "dashed",
+            LI_10 = "dotted", LI_50 = "dotdash")
+  li_names <- c("LI_05", "LI_10", "LI_50")
+
+  vmarks <- data.frame(xintercept = c(fit_obj$fit[[1]]$tc, mo$tc_hat_mpl),
+                       series = c("PLE", "MPLE"))
+  for (i in seq_along(mo$LI)) {
+    if (!any(is.na(mo$LI[[i]])))
+      vmarks <- rbind(vmarks,
+                      data.frame(xintercept = mo$LI[[i]], series = li_names[i]))
+  }
+  present <- names(cols)[names(cols) %in% vmarks$series]
+  vmarks$series <- factor(vmarks$series, levels = present)
+  hmarks <- data.frame(yintercept = log(cutoff),
+                       series = factor(li_names[seq_along(cutoff)],
+                                       levels = present))
+
+  ggplot(data.frame(tc = (n + 1):(n + length(mo$R)), R = mo$R),
+         aes(x = tc, y = R)) +
+    geom_point(size = 0.5, na.rm = TRUE) +
+    geom_hline(data = hmarks,
+               aes(yintercept = yintercept, color = series, linetype = series),
+               linewidth = 0.4) +
+    geom_vline(data = vmarks,
+               aes(xintercept = xintercept, color = series, linetype = series),
+               key_glyph = "path") +
+    scale_color_manual(name = NULL, values = cols, breaks = present) +
+    scale_linetype_manual(name = NULL, values = ltys, breaks = present) +
+    coord_cartesian(ylim = c(min(log(cutoff)) - pad, 0.4)) +
+    labs(x = "Critical Time (tc)", y = "Relative log MPL",
+         title = "Modified Profile Likelihood (relative)") +
+    theme_minimal() +
+    lpplsF:::overlay_legend_theme(inside = c(0.99, 0.99),
+                                  justification = c(1, 1))
+}
+```
+
+```{r spx-mplplot-rel, fig.width=5.5, fig.height=4}
+mpl_rel_plot(spx_fit, c(0.05, 0.1, 0.5))
+```
+
+Only `LI_50` has a crossing: the curve descends from the peak to about $-1.15$
+and then stops, so it never reaches $\log 0.10$ or $\log 0.05$. Those two
+intervals end where the good basin ends, which is the previous note made visible.
+
+## The rest of the diagnostics
+
+`print()` is the quick triage. Three further tools answer the questions it
+raises: *where* the basins are, whether the estimate sits at a genuine minimum,
+and whether the intervals are closed by the likelihood or by the grid.
+
+### The basin split, drawn
+
+`plot(fit, "basin")` shows every conditional fit's SSE against its $t_c$, split
+at the gap `print()` reported. It needs nothing that was not already computed, so
+it works even on a fit that requested no plots.
+
+```{r spx-basin, fig.width=6, fig.height=3.6}
+plot(spx_fit, "basin")
+```
+
+The same view of the well-behaved calibration from §2, for contrast — one cloud,
+rising smoothly away from the optimal $t_c$, which is what a profile should look
+like:
+
+```{r e008-basin, fig.width=6, fig.height=3.6}
+plot(fit_e008, "basin")
+```
+
+### What the basins are made of
+
+The view above shows *that* the fits split, but not what they split on.
+`"param_basin"` applies the same division to every estimated parameter rather
+than only the objective, which is where the mechanism becomes visible.
+
+```{r spx-param-basin, fig.width=6, fig.height=9.5}
+plot(spx_fit, "param_basin")
+```
+
+```{r spx-basin-ranges}
+## The split is the one summary() reports; here it is per parameter.
+cut_at <- summary(spx_fit)$split_at[1]
+pt     <- spx_fit$fit[[2]]
+pt$basin <- ifelse(pt$value <= cut_at, "good", "inferior")
+rng <- function(z) sprintf("%.3f - %.3f", min(z), max(z))
+knitr::kable(
+  aggregate(cbind(m, omega, D) ~ basin, data = pt, FUN = rng),
+  caption = "Range of each nonlinear estimate within each basin.")
+```
+
+The two basins are separated almost entirely by $\omega$: the good one sits near
+the bottom of the $[6, 13]$ search box, the inferior one near the top. $m$ is at
+$0.9$ in **both**, so it plays no part in the split at all.
+
+That separates two failures which the SSE view alone runs together. The pinned
+$m$ is a **boundary** problem, and it affects every fit on the grid. The two
+tiers are an **$\omega$ multimodality** problem, and it affects only which
+optimum a single L-BFGS-B start happens to reach — a `num_searches` setting, not
+a property of the data. The `C1`/`C2` facets tell the same story: the inferior
+fits oscillate through a high-frequency regime while the good ones trace a smooth
+low-frequency arc.
+
+### Curvature at the estimate
+
+The modified profile likelihood assumes the estimate is an interior minimum: its
+correction uses $\det(X'X - H)$, the observed information, which is only
+guaranteed positive at an interior stationary point. `lppls_curvature()` tests
+that directly, and factorises the determinant to show where its sign comes from.
+
+By the Schur complement, $\det(X'X - H)$ is the determinant of the
+linear-parameter block — a crossproduct, so always positive — times the
+determinant of the $2 \times 2$ Hessian of the $(m, \omega)$ profile. The sign is
+therefore decided entirely by curvature in the two nonlinear parameters.
+
+```{r spx-curvature}
+lppls_curvature(spx_fit)
+```
+
+Read the classification and the bound note as two separate facts. The curvature
+*is* positive definite here, so the $t_c$ the MPL reports is not an artefact of a
+degenerate Hessian. But $m$ rests on its bound, so the gradient need not vanish:
+the estimate is a constrained one whatever the curvature says. It is the
+combination — sound curvature, active constraint — that makes the point estimate
+usable and the intervals not.
+
+### Everything at once: `summary()`
+
+`summary()` returns the diagnostics as values rather than text, so they can be
+tested against instead of parsed. Printing it gives the `print()` report plus the
+curvature line and an interval breakdown.
+
+```{r spx-summary}
+s <- summary(spx_fit)
+s$basin_gap
+s$mpl$li_check[[1]]
+```
+
+That last list is the interval integrity check. `compute_mpl()` forms an interval
+as `range()` of the $t_c$ whose $R$ exceeds $\log(\text{cutoff})$ — and `range()`
+does not care whether that set has holes. When it does, the reported interval
+contains grid points that are not themselves in it:
+
+```{r spx-summary-print}
+s
+```
+
+`LI(0.05)` and `LI(0.10)` each span more grid points than are above their cutoff:
+the interval bridges the gap between two runs of good-basin fits. `LI(0.50)` is
+contiguous. This is the same conclusion the relative-scale plot above shows
+visually, arrived at from the numbers.
 
 ## Fit diagnostics (`fig:spxparam`)
 

@@ -173,7 +173,15 @@
 #'            forecasting horizon.}
 #'       }
 #'     }
+#'     \item{fit_args}{List recording the settings this calibration ran with —
+#'       `mode`, `n` (calibration length), `fh`, `hold_out`, `lower`, `upper`
+#'       and `num_searches`. Diagnostics need these: whether `m = 0.9` is a
+#'       boundary solution or an interior optimum cannot be told from the
+#'       estimate alone.}
 #'   }
+#'
+#'   The list has class `"lppls_fit"`; see [print.lppls_fit()] for the
+#'   diagnostic summary.
 #'
 #' @details
 #' The LPPLS model is:
@@ -855,19 +863,573 @@ fit_lppls <- function(
   }
 
   ## Return results
-  list(
-    fit = fit,
-    mpl_output = mpl_output,
-    mpl_plot = mpl_plot_obj,
-    fit_plot = fit_plot_obj,
-    contour_data = contour_data,
-    contour_plot = contour_plot_obj,
-    surface_plot = surface_plot_obj,
-    trace_plot_mo = trace_plot_mo,
-    trace_plot_bm = trace_plot_bm,
-    trace_plot_bo = trace_plot_bo,
-    param_plot = param_plot_obj,
-    matrix_plot = matrix_plot_obj,
-    out_of_range_tracker = out_of_range_tracker
+  structure(
+    list(
+      fit = fit,
+      mpl_output = mpl_output,
+      mpl_plot = mpl_plot_obj,
+      fit_plot = fit_plot_obj,
+      contour_data = contour_data,
+      contour_plot = contour_plot_obj,
+      surface_plot = surface_plot_obj,
+      trace_plot_mo = trace_plot_mo,
+      trace_plot_bm = trace_plot_bm,
+      trace_plot_bo = trace_plot_bo,
+      param_plot = param_plot_obj,
+      matrix_plot = matrix_plot_obj,
+      out_of_range_tracker = out_of_range_tracker,
+      ## The input series, so diagnostics that need the data (curvature at the
+      ## estimate, residuals) do not make the caller supply it again. The
+      ## calibration slice is log_price[seq_len(fit_args$n)].
+      log_price = log_price,
+      fit_args = list(
+        mode         = mode,
+        n            = n,
+        fh           = fh,
+        hold_out     = hold_out,
+        lower        = lower,
+        upper        = upper,
+        num_searches = num_searches,
+        mpl_cutoff   = mpl_cutoff
+      )
+    ),
+    class = "lppls_fit"
   )
+}
+
+
+#' Diagnostic quantities behind `print.lppls_fit()`
+#'
+#' Kept separate from the printing so the checks can be tested on values instead
+#' of on formatted output. Components are `NULL` when the fit does not carry what
+#' they need — `fit_args` is absent from objects made before it was recorded, and
+#' without `lower`/`upper` no boundary check is possible.
+#'
+#' @param x An `"lppls_fit"` object.
+#' @param gap_tol Share of the SSE spread the largest gap must reach before the
+#'   fits count as splitting into a good and an inferior cluster. Default 0.3.
+#' @param tol Relative tolerance for "at a bound", as in `.boundary_pars()`.
+#'   Default 1e-3.
+#'
+#' @keywords internal
+#' @noRd
+.fit_diagnostics <- function(x, gap_tol = 0.3, tol = 1e-3) {
+  a   <- x$fit_args
+  est <- x$fit[[1]]
+  tbl <- if (length(x$fit) >= 2L && is.data.frame(x$fit[[2]])) x$fit[[2]] else NULL
+
+  pick <- function(v, empty) if (is.null(v)) empty else v
+  d <- list(
+    mode         = pick(a$mode, NA_character_),
+    n            = pick(a$n, NA_integer_),
+    fh           = pick(a$fh, NA_integer_),
+    hold_out     = pick(a$hold_out, NA_integer_),
+    num_searches = pick(a$num_searches, NA_integer_),
+    estimate     = est,
+    n_fits       = if (is.null(tbl)) NA_integer_ else nrow(tbl)
+  )
+
+  ## Boundary solutions: the point estimate, then the whole table of fits.
+  bounds_known <- !is.null(a$lower) && !is.null(a$upper)
+  d$pinned <- if (bounds_known) .boundary_pars(est, a$lower, a$upper, tol) else NULL
+  d$boundary_counts <- if (bounds_known && !is.null(tbl)) {
+    .boundary_counts(tbl, a$lower, a$upper, tol)
+  } else {
+    NULL
+  }
+
+  ## Optimisation basins. Distance from the best SSE will not do on its own: In
+  ## "F2"/"MPL" the conditional SSE legitimately rises away from the optimal tc,
+  ## so a perfectly good profile also has fits well above the minimum. What marks
+  ## a failed search is a *gap* — the sorted SSEs fall into a good cluster and a
+  ## distinctly worse one. So measure the largest gap between consecutive sorted
+  ## values as a share of the total spread: scale-free, bounded in [0, 1], and
+  ## near 0 for a smooth profile whatever the noise level.
+  if (!is.null(tbl) && sum(is.finite(tbl$value)) >= 3L) {
+    v    <- sort(tbl$value[is.finite(tbl$value)])
+    span <- diff(range(v))
+    d$best_sse  <- v[1]
+    d$worst_sse <- v[length(v)]
+    if (span > 0) {
+      gaps <- diff(v)
+      i    <- which.max(gaps)
+      d$basin_gap     <- gaps[i] / span
+      d$n_inferior    <- length(v) - i
+      d$frac_inferior <- d$n_inferior / length(v)
+      d$split_at      <- c(v[i], v[i + 1L])
+      d$gap_tol       <- gap_tol
+      d$split         <- d$basin_gap >= gap_tol
+    }
+  }
+
+  ## Search filters: B >= upper[3] and damping < lower[4].
+  d$oor_B <- length(x$out_of_range_tracker$B)
+  d$oor_D <- length(x$out_of_range_tracker$D)
+
+  ## Modified profile likelihood, when it was computed.
+  m <- x$mpl_output
+  if (!is.null(m)) {
+    ll   <- m$LL
+    ok   <- which(!is.na(ll))
+    mple <- m$tc_hat_mpl
+    d$mpl <- list(
+      defined = length(ok),
+      total   = length(ll),
+      mple    = mple,
+      ## An argmax on the first or last defined grid point means the maximum is
+      ## where the curve stops, not where the likelihood turns over.
+      at_edge = if (length(ok) == 0L) NA_character_
+                else if (which.max(ll) == max(ok)) "upper"
+                else if (which.max(ll) == min(ok)) "lower"
+                else NA_character_,
+      cutoff  = a$mpl_cutoff,
+      li      = m$LI,
+      ## A bound sitting exactly on the estimate is a truncated interval: It was
+      ## closed by the end of the defined region, not by a drop in likelihood.
+      li_touches_mple = vapply(
+        m$LI,
+        function(li) !any(is.na(li)) && !is.na(mple) && any(li == mple),
+        logical(1)
+      )
+    )
+
+    ## Is each interval closed by the likelihood, or only by the grid?
+    ## compute_mpl() takes range() of the tc whose R exceeds log(cutoff). If that
+    ## set has holes the range spans them silently, so the reported interval
+    ## contains grid points that are not themselves in it. That happens when the
+    ## curve leaves the good basin rather than descending through the cutoff, and
+    ## it is the difference between "narrow because the likelihood is sharp" and
+    ## "narrow because the search only worked here".
+    if (!is.null(a$mpl_cutoff) && length(a$mpl_cutoff) == length(m$LI)) {
+      tc_grid <- seq_along(ll) + d$n
+      d$mpl$li_check <- lapply(seq_along(m$LI), function(j) {
+        ids <- which(log(a$mpl_cutoff[j]) < m$R)
+        if (!length(ids)) {
+          return(list(
+            cutoff         = a$mpl_cutoff[j],
+            n_in           = 0L,
+            span           = NA_integer_,
+            contiguous     = NA,
+            bridged        = NA_integer_,
+            all_good_basin = NA
+          ))
+        }
+        span <- max(ids) - min(ids) + 1L
+        ## Do the members coincide with the good basin? If every tc inside is a
+        ## good-basin fit, the interval is tracing the search, not the curvature.
+        good <- NA
+        if (isTRUE(d$split) && !is.null(tbl) && !is.na(d$n)) {
+          v_in <- tbl$value[match(tc_grid[ids], tbl$tc)]
+          good <- all(!is.na(v_in) & v_in <= d$split_at[1])
+        }
+        list(
+          cutoff         = a$mpl_cutoff[j],
+          n_in           = length(ids),
+          span           = span,
+          contiguous     = length(ids) == span,
+          bridged        = span - length(ids),
+          all_good_basin = good
+        )
+      })
+    }
+  }
+
+  d
+}
+
+
+#' Print an LPPLS calibration with its diagnostics
+#'
+#' Prints the point estimate together with the checks that decide whether it can
+#' be trusted: whether the solution sits at an optimisation bound, how many of the
+#' individual fits reached the best basin found, how many were filtered on `B` or
+#' damping, and — in `"MPL"` mode — whether the modified profile likelihood is
+#' defined across the whole grid and whether its likelihood intervals are closed
+#' by the likelihood or merely by the edge of that grid.
+#'
+#' Findings that undermine the fit are repeated as a `Diagnostics` block, so a
+#' degenerate calibration announces itself rather than having to be inferred from
+#' the numbers.
+#'
+#' @param x An object of class `"lppls_fit"` from [fit_lppls()].
+#' @param ... Ignored.
+#'
+#' @return `x`, invisibly.
+#'
+#' @seealso [fit_lppls()], [summary.lppls_fit()], [lppls_curvature()]
+#'
+#' @export
+print.lppls_fit <- function(x, ...) {
+  .print_fit_diagnostics(.fit_diagnostics(x))
+  invisible(x)
+}
+
+
+#' Format a diagnostic summary
+#'
+#' Shared by [print.lppls_fit()] and [print.summary.lppls_fit()]; the latter
+#' passes a curvature report to append.
+#'
+#' @keywords internal
+#' @noRd
+.print_fit_diagnostics <- function(d, curv = NULL) {
+  e    <- d$estimate
+  unit <- if (identical(d$mode, "F1")) "restarts" else "conditional fits"
+
+  cat(sprintf("LPPLS calibration (mode = %s)\n", d$mode))
+  cat(sprintf("  Window:    n = %s   fh = %s   hold_out = %s   num_searches = %s\n",
+              d$n, d$fh, d$hold_out, d$num_searches))
+  cat(sprintf("  Estimate:  tc = %.2f   m = %.4f   omega = %.4f   D = %.3f   SSE = %.6g\n",
+              e$tc, e$m, e$omega, e$D, e$value))
+
+  if (is.null(d$boundary_counts)) {
+    cat("  Bounds:    not recorded for this fit\n")
+  } else {
+    cat(sprintf("  Bounds:    estimate %s;  fits at a bound: m %d/%d, omega %d/%d\n",
+                if (length(d$pinned)) {
+                  paste0(paste(d$pinned, collapse = " and "), " at a bound")
+                } else {
+                  "interior"
+                },
+                d$boundary_counts[["m"]], d$n_fits,
+                d$boundary_counts[["omega"]], d$n_fits))
+  }
+
+  if (!is.null(d$basin_gap)) {
+    if (isTRUE(d$split)) {
+      cat(sprintf(
+        "  Basins:    SSE %.6g..%.6g;  largest gap %.2f of the spread splits off %d/%d %s (%.0f%%)\n",
+        d$best_sse, d$worst_sse, d$basin_gap, d$n_inferior, d$n_fits, unit,
+        100 * d$frac_inferior))
+    } else {
+      cat(sprintf(
+        "  Basins:    SSE %.6g..%.6g;  no distinct inferior cluster (largest gap %.2f of the spread)\n",
+        d$best_sse, d$worst_sse, d$basin_gap))
+    }
+  }
+
+  cat(sprintf("  Filters:   B out of range %d   D out of range %d\n", d$oor_B, d$oor_D))
+
+  if (!is.null(d$mpl)) {
+    cat(sprintf("  MPL:       defined at %d/%d tc   MPLE = %s\n",
+                d$mpl$defined, d$mpl$total, d$mpl$mple))
+    if (length(d$mpl$li)) {
+      lab <- if (length(d$mpl$cutoff) == length(d$mpl$li)) {
+        sprintf("LI(%.2f)", d$mpl$cutoff)
+      } else {
+        sprintf("LI[%d]", seq_along(d$mpl$li))
+      }
+      cat("             ",
+          paste(mapply(function(l, li) sprintf("%s [%s, %s]", l, li[1], li[2]),
+                       lab, d$mpl$li),
+                collapse = "   "),
+          "\n", sep = "")
+    }
+  }
+
+  flags <- character(0)
+  if (!is.null(d$pinned) && length(d$pinned) > 0L) {
+    flags <- c(flags, sprintf(
+      "%s pinned at an optimisation bound - a boundary solution, so the modified profile likelihood and its intervals are unreliable",
+      paste(d$pinned, collapse = " and ")))
+  }
+  if (isTRUE(d$split)) {
+    flags <- c(flags, sprintf(
+      "%d of %d %s (%.0f%%) sit in a distinct inferior basin (SSE >= %.6g against a best of %.6g) - raise num_searches",
+      d$n_inferior, d$n_fits, unit, 100 * d$frac_inferior,
+      d$split_at[2], d$best_sse))
+  }
+  if (!is.null(d$mpl)) {
+    if (d$mpl$defined < d$mpl$total) {
+      flags <- c(flags, sprintf(
+        "MPL undefined at %d of %d tc (det(X'X - H) <= 0 there)",
+        d$mpl$total - d$mpl$defined, d$mpl$total))
+    }
+    if (!is.na(d$mpl$at_edge)) {
+      flags <- c(flags, sprintf(
+        "MPLE is the %s edge of the defined region, not an interior maximum",
+        d$mpl$at_edge))
+    }
+    if (any(d$mpl$li_touches_mple)) {
+      flags <- c(flags,
+        "a likelihood interval is bounded by the MPLE itself - closed by the grid, not by the likelihood")
+    }
+  }
+
+  ## Intervals: closed by the likelihood, or bridged across a hole?
+  if (!is.null(d$mpl$li_check)) {
+    for (k in d$mpl$li_check) {
+      if (isTRUE(k$contiguous) || is.na(k$contiguous)) next
+      flags <- c(flags, sprintf(
+        "LI(%.2f) spans %d grid points but only %d are above its cutoff - range() bridges %d that are not in the interval",
+        k$cutoff, k$span, k$n_in, k$bridged))
+    }
+    if (any(vapply(d$mpl$li_check, function(k) isTRUE(k$all_good_basin), logical(1)))) {
+      flags <- c(flags,
+        "every tc inside an interval is a good-basin fit - the interval traces where the search succeeded, not the curvature of the likelihood")
+    }
+  }
+
+  if (!is.null(curv)) {
+    cat(sprintf("  Curvature: %s at the estimate  (det(X'X - H) = %+.3e;  profile Hessian eigenvalues %s)\n",
+                curv$classification, curv$det_full,
+                paste(sprintf("%+.3e", curv$eigen_profile), collapse = ", ")))
+    if (!identical(curv$classification, "positive definite")) {
+      flags <- c(flags, sprintf(
+        "the profiled (m, omega) Hessian is %s, so det(X'X - H) <= 0 and the MPL is undefined at the estimate%s",
+        curv$classification,
+        if (length(d$pinned)) " - unsurprising, since a bound is active" else ""))
+    }
+  }
+
+  if (length(flags)) {
+    cat("\n  Diagnostics:\n")
+    cat(paste0("    ! ", flags, collapse = "\n"), "\n", sep = "")
+  }
+
+  invisible(d)
+}
+
+
+#' Plot an LPPLS calibration
+#'
+#' Returns one of the plots attached to the fit, or draws the basin view. The
+#' attached ones exist only if they were asked for at fit time (`fp`, `pp`, `mp`,
+#' `tp`, `mpl_plot`, `cp`, `sp`); `"basin"` is always available, since it is
+#' built from the per-fit table.
+#'
+#' `"basin"` plots each fit's SSE against its `tc`, split at the gap
+#' [print.lppls_fit()] reports. When a search has failed on part of the grid the
+#' two clusters separate visibly, which is invisible in the point estimate.
+#'
+#' `"param_basin"` is the per-`tc` parameter plot with the same split applied to
+#' every parameter, not just the objective. It answers what `"basin"` cannot:
+#' *which* parameters the inferior fits differ in — typically `omega` jumping
+#' between local optima while `m` stays pinned at its bound.
+#'
+#' @param x An object of class `"lppls_fit"` from [fit_lppls()].
+#' @param which Which plot to return. `"basin"` is drawn on demand; the rest are
+#'   returned from the fit.
+#' @param ... Ignored.
+#'
+#' @return A `ggplot2` object (a `plotly` object for `"contour"`/`"surface"`).
+#'
+#' @seealso [fit_lppls()], [print.lppls_fit()]
+#'
+#' @importFrom ggplot2 ggplot aes geom_point scale_color_manual labs theme_minimal
+#' @export
+plot.lppls_fit <- function(x, which = c("basin", "param_basin", "fit", "mpl",
+                                        "param", "matrix", "trace_mo",
+                                        "trace_bm", "trace_bo",
+                                        "contour", "surface"), ...) {
+  which <- match.arg(which)
+
+  if (!which %in% c("basin", "param_basin")) {
+    slot <- c(fit = "fit_plot", mpl = "mpl_plot", param = "param_plot",
+              matrix = "matrix_plot", trace_mo = "trace_plot_mo",
+              trace_bm = "trace_plot_bm", trace_bo = "trace_plot_bo",
+              contour = "contour_plot", surface = "surface_plot")[[which]]
+    p <- x[[slot]]
+    if (is.null(p)) {
+      stop("This fit has no ", which, " plot; re-run fit_lppls() asking for it.")
+    }
+    return(p)
+  }
+
+  tbl <- if (length(x$fit) >= 2L && is.data.frame(x$fit[[2]])) x$fit[[2]] else NULL
+  if (is.null(tbl)) stop("This fit has no per-fit table to draw a basin plot from.")
+  d <- .fit_diagnostics(x)
+
+  tbl$basin <- if (isTRUE(d$split)) {
+    ifelse(tbl$value <= d$split_at[1], "good", "inferior")
+  } else {
+    "single"
+  }
+  sub <- if (isTRUE(d$split)) {
+    sprintf("largest gap %.2f of the spread; %d of %d fits in the inferior basin",
+            d$basin_gap, d$n_inferior, nrow(tbl))
+  } else {
+    "no distinct inferior cluster"
+  }
+
+  pal <- c(good = "royalblue", inferior = "firebrick", single = "black")
+
+  if (which == "basin") {
+    return(
+      ggplot2::ggplot(tbl, ggplot2::aes(x = tc, y = value, color = basin)) +
+        ggplot2::geom_point(size = 0.6) +
+        ggplot2::scale_color_manual(name = NULL, values = pal) +
+        ggplot2::labs(x = "Critical Time (tc)", y = "SSE of the conditional fit",
+                      title = "Optimisation basins", subtitle = sub) +
+        ggplot2::theme_minimal() +
+        overlay_legend_theme(inside = c(0.99, 0.99), justification = c(1, 1))
+    )
+  }
+
+  ## param_basin: the per-tc parameter plot, split the same way, so the basins
+  ## can be read off every parameter rather than only the objective.
+  plot_df <- tidyr::gather(tbl, key = "param", value = "estimate",
+                           -c(ID, tc, basin))
+  ggplot2::ggplot(plot_df, ggplot2::aes(x = tc, y = estimate, color = basin)) +
+    ggplot2::geom_point(size = 0.5) +
+    ggplot2::geom_vline(xintercept = x$fit[[1]]$tc, color = "red") +
+    ggplot2::scale_color_manual(name = NULL, values = pal) +
+    ggplot2::facet_wrap(~param, scales = "free_y", ncol = 1) +
+    ggplot2::labs(x = "Critical Time (tc)", y = NULL,
+                  title = "Per-tc estimates by optimisation basin", subtitle = sub)
+}
+
+
+#' Curvature of the LPPLS objective at the estimate
+#'
+#' Tests whether the calibration sits at a genuine interior minimum. The
+#' modified profile likelihood assumes it does: its correction term uses
+#' \eqn{\det(X'X - H)}, the observed information, which is only guaranteed
+#' positive at an interior stationary point.
+#'
+#' By the Schur complement, \eqn{\det(X'X - H)} factorises into the determinant
+#' of the linear-parameter block (always positive) times the determinant of the
+#' 2x2 Hessian of the \eqn{(m, \omega)} profile. So the sign of the full
+#' determinant is decided entirely by the curvature in the two nonlinear
+#' parameters, and that 2x2 block is what this function reports. A saddle there
+#' is the signature of an estimate resting on an optimisation bound.
+#'
+#' @param x An object of class `"lppls_fit"` from [fit_lppls()].
+#' @param log_price Optional numeric vector, the series the fit was calibrated
+#'   on. Only needed for fits made before `fit_lppls()` stored it.
+#'
+#' @return An object of class `"lppls_curvature"`: a list with the full and
+#'   profile determinants, the profile Hessian and its eigenvalues, the active
+#'   bounds, and a `classification` of `"minimum"`, `"saddle"` or `"maximum"`.
+#'
+#' @seealso [fit_lppls()], [print.lppls_fit()]
+#'
+#' @export
+lppls_curvature <- function(x, log_price = NULL) {
+  if (!inherits(x, "lppls_fit")) {
+    stop("'x' must be an object of class \"lppls_fit\" from fit_lppls().")
+  }
+  lp <- if (!is.null(log_price)) log_price else x$log_price
+  if (is.null(lp)) {
+    stop("The fit does not carry its input series (made before fit_lppls() ",
+         "stored it); supply it with the 'log_price' argument.")
+  }
+  a <- x$fit_args
+  n <- if (is.null(a$n)) min(x$fit[[2]]$tc) - 1 else a$n
+  if (length(lp) < n) stop("'log_price' is shorter than the calibration window.")
+
+  e     <- x$fit[[1]]
+  t     <- seq_len(n)
+  log_p <- lp[seq_len(n)]
+  Psi   <- c(e$m, e$omega, e$A, e$B, e$C1, e$C2)
+
+  X <- compute_X_matrix(Psi, e$tc, t)
+  H <- compute_H_matrix(Psi, e$tc, log_p, t)
+  M <- crossprod(X) - H
+
+  ## Schur complement onto (m, omega): the Hessian of the profiled objective.
+  lin <- M[3:6, 3:6, drop = FALSE]
+  S   <- M[1:2, 1:2, drop = FALSE] -
+         M[1:2, 3:6, drop = FALSE] %*% solve(lin) %*% M[3:6, 1:2, drop = FALSE]
+  ev  <- eigen((S + t(S)) / 2, symmetric = TRUE, only.values = TRUE)$values
+
+  ## Curvature only. Positive definite does not imply the point is stationary:
+  ## with a bound active the gradient need not vanish, and the two questions are
+  ## reported separately.
+  cls <- if (all(ev > 0)) {
+    "positive definite"
+  } else if (all(ev < 0)) {
+    "negative definite"
+  } else {
+    "saddle"
+  }
+  pinned <- if (!is.null(a$lower) && !is.null(a$upper)) {
+    .boundary_pars(e, a$lower, a$upper)
+  } else {
+    NULL
+  }
+
+  structure(
+    list(
+      det_full        = det(M),
+      det_linear      = det(lin),
+      det_profile     = det(S),
+      hessian_profile = S,
+      eigen_profile   = ev,
+      classification  = cls,
+      pinned          = pinned,
+      tc              = e$tc,
+      n               = n
+    ),
+    class = "lppls_curvature"
+  )
+}
+
+
+#' @export
+print.lppls_curvature <- function(x, ...) {
+  cat("LPPLS curvature at the estimate\n")
+  cat(sprintf("  tc = %.2f   n = %d\n", x$tc, x$n))
+  cat(sprintf("  det(X'X - H)          = %+.4e   (MPL is defined only where this is > 0)\n",
+              x$det_full))
+  cat(sprintf("  det(linear block)     = %+.4e   (positive by construction)\n", x$det_linear))
+  cat(sprintf("  det(profile Hessian)  = %+.4e   (sets the sign above)\n", x$det_profile))
+  cat(sprintf("  eigenvalues (m, omega): %s\n",
+              paste(sprintf("%+.4e", x$eigen_profile), collapse = "   ")))
+  cat(sprintf("  => profile Hessian is %s%s\n", x$classification,
+              switch(x$classification,
+                     `positive definite` = ": the curvature condition behind the MPL holds",
+                     `saddle`            = ": not a minimum in (m, omega), so det(X'X - H) < 0",
+                     `negative definite` = ": a maximum in (m, omega)")))
+  if (length(x$pinned)) {
+    cat(sprintf("  note: %s sits at an optimisation bound, so the estimate is a constrained one -\n",
+                paste(x$pinned, collapse = " and ")))
+    cat("        the gradient need not vanish there, whatever the curvature says\n")
+  }
+  invisible(x)
+}
+
+
+#' Full diagnostic summary of an LPPLS calibration
+#'
+#' Everything [print.lppls_fit()] reports, plus the curvature check at the
+#' estimate when the fit carries (or is given) its input series. The returned
+#' object holds the diagnostics as values, so they can be used programmatically
+#' rather than parsed out of printed text.
+#'
+#' @param object An object of class `"lppls_fit"` from [fit_lppls()].
+#' @param log_price Optional numeric vector passed to [lppls_curvature()], for
+#'   fits made before `fit_lppls()` stored the series.
+#' @param ... Ignored.
+#'
+#' @return An object of class `"summary.lppls_fit"`.
+#'
+#' @seealso [fit_lppls()], [lppls_curvature()]
+#'
+#' @export
+summary.lppls_fit <- function(object, log_price = NULL, ...) {
+  d <- .fit_diagnostics(object)
+  d$curvature <- tryCatch(lppls_curvature(object, log_price = log_price),
+                          error = function(e) NULL)
+  structure(d, class = "summary.lppls_fit")
+}
+
+
+#' @export
+print.summary.lppls_fit <- function(x, ...) {
+  d <- x
+  class(d) <- NULL
+  .print_fit_diagnostics(d, curv = d$curvature)
+  if (!is.null(d$mpl$li_check)) {
+    cat("\n  Likelihood intervals:\n")
+    for (k in d$mpl$li_check) {
+      cat(sprintf("    LI(%.2f): %d grid points above the cutoff, interval spans %s%s\n",
+                  k$cutoff, k$n_in,
+                  if (is.na(k$span)) "-" else as.character(k$span),
+                  if (isTRUE(k$contiguous)) "  (contiguous)"
+                  else if (is.na(k$contiguous)) ""
+                  else sprintf("  (bridges %d points below the cutoff)", k$bridged)))
+    }
+  }
+  invisible(x)
 }
