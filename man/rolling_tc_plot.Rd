@@ -16,8 +16,8 @@ A \code{ggplot2} object.
 Plots the point estimate of the critical time \eqn{t_c} (profile likelihood,
 black; modified profile likelihood, cyan) with the 5\\%, 10\\% and 50\\%
 likelihood-interval bands, as a function of the rolling calibration start time
-\eqn{T_1}. This is a general window-diagnostic — useful with or without
-Lagrange regularization — and reproduces the \verb{*_output_T1} figure from the
+\eqn{T_1}. This is a general window-diagnostic -- useful with or without
+Lagrange regularization -- and reproduces the \verb{*_output_T1} figure from the
 thesis. Requires the rolling calibration to have been run in \code{mode = "MPL"}.
 }
 \seealso{

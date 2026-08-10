@@ -56,6 +56,9 @@
 #'   boundary solution (m or omega pinned at a bound) for which the MPL is
 #'   unreliable.
 #' @param fb Logical, whether to print feedback.
+#' @param beta_calculator Function from [create_beta_calculator()]. Passed in
+#'   rather than built here so the solver choice is honoured and the calculator
+#'   is constructed once per fit instead of once per candidate `tc`.
 #'
 #' @return List with:
 #'   \itemize{
@@ -68,7 +71,8 @@
 #'
 #' @keywords internal
 #' @noRd
-compute_mpl <- function(fit, log_p, t, fh, cutoff, lower, upper, fb = FALSE) {
+compute_mpl <- function(fit, log_p, t, fh, cutoff, lower, upper, fb = FALSE,
+                        beta_calculator = create_beta_calculator()) {
   n <- length(t)
   log_cutoff <- log(cutoff)
 
@@ -125,7 +129,8 @@ compute_mpl <- function(fit, log_p, t, fh, cutoff, lower, upper, fb = FALSE) {
         Psi_hat_tc = par_hat_tc,
         Psi_hat = par_hat[2:7],
         log_p = log_p,
-        t = t
+        t = t,
+        beta_calc = beta_calculator
       )
     } else {
       R_tbl$LL[i] <- NA
@@ -179,12 +184,11 @@ compute_mpl <- function(fit, log_p, t, fh, cutoff, lower, upper, fb = FALSE) {
 #'
 #' @keywords internal
 #' @noRd
-compute_mpl_loglik <- function(tc, tc_hat, Psi_hat_tc, Psi_hat, log_p, t) {
+compute_mpl_loglik <- function(tc, tc_hat, Psi_hat_tc, Psi_hat, log_p, t,
+                               beta_calc = create_beta_calculator()) {
   n <- length(t)
   p <- 6
 
-  ## Create beta calculator
-  beta_calc <- create_beta_calculator()
   beta_vals <- beta_calc(log_p, t, tc, Psi_hat_tc[1], Psi_hat_tc[2])
 
   ## Compute fitted values and SSE
@@ -1121,8 +1125,8 @@ contour_plot_sse <- function(
 #' Plots the point estimate of the critical time \eqn{t_c} (profile likelihood,
 #' black; modified profile likelihood, cyan) with the 5\%, 10\% and 50\%
 #' likelihood-interval bands, as a function of the rolling calibration start time
-#' \eqn{T_1}. This is a general window-diagnostic — useful with or without
-#' Lagrange regularization — and reproduces the `*_output_T1` figure from the
+#' \eqn{T_1}. This is a general window-diagnostic -- useful with or without
+#' Lagrange regularization -- and reproduces the `*_output_T1` figure from the
 #' thesis. Requires the rolling calibration to have been run in `mode = "MPL"`.
 #'
 #' @param x An object of class `"lppls_rolling"` from [lppls_rolling()].

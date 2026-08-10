@@ -177,7 +177,7 @@ print.lr_trend_test <- function(x, ...) {
   cat(sprintf("  OLS p       = %.3g%s\n", x$p_ols,
               if (!is.na(x$p_hac)) sprintf("      HAC (Newey-West) p = %.3g", x$p_hac) else ""))
   cat(sprintf("  AR(1)-GARCH(1,1): ar1 = %.2f, alpha + beta = %.3f  [%s]\n",
-              x$ar1, x$persist, if (isTRUE(x$valid)) "valid" else "IGARCH — unreliable"))
+              x$ar1, x$persist, if (isTRUE(x$valid)) "valid" else "IGARCH -- unreliable"))
   if (isTRUE(x$valid)) {
     cat(sprintf("  parametric bootstrap: p = %.3f, z = %.2f  (B = %d)\n",
                 x$p_boot, x$z, x$B))

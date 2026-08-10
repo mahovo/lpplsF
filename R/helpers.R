@@ -99,19 +99,87 @@ calculate_damping <- function(m, B, omega, C1, C2) {
 }
 
 
-#' Create Beta Calculator Using Symbolic Math
+#' Create Beta Calculator
 #'
 #' Creates a function that calculates the linear parameters (A, B, C1, C2)
-#' given fixed nonlinear parameters (tc, m, omega) using symbolic matrix
-#' inversion for efficiency.
+#' given fixed nonlinear parameters (tc, m, omega).
+#'
+#' For fixed \eqn{(t_c, m, \omega)} the LPPLS model is linear in
+#' \eqn{A, B, C_1, C_2}, so this is ordinary least squares with design matrix
+#' \eqn{X = [1, \tau^m, \tau^m \cos(\omega \log \tau),
+#' \tau^m \sin(\omega \log \tau)]}{X = [1, tau^m, tau^m cos(omega log tau),
+#' tau^m sin(omega log tau)]}, \eqn{\tau = t_c - t}{tau = tc - t}. All methods
+#' return the same \eqn{\beta}{beta} and differ only in how they solve for it;
+#' see `misc/bench_beta.Rmd` for timings and a precision comparison.
+#'
+#' @param method Solver to use:
+#'   \describe{
+#'     \item{`"crossprod"`}{Normal equations via [crossprod()] and [solve()].
+#'       The default: fastest, and exact to well within anything interpretable
+#'       over the admissible range \eqn{0.1 \le m \le 0.9}{0.1 <= m <= 0.9}.}
+#'     \item{`"qr"`}{Householder QR via [.lm.fit()]. Never forms \eqn{X'X}, so it
+#'       does not square the condition number. Around 30% slower and markedly
+#'       more accurate; the safer choice if `lower[1]` is widened toward
+#'       \eqn{m \to 0}{m -> 0}, where \eqn{\tau^m \to 1}{tau^m -> 1} collides
+#'       with the intercept column.}
+#'     \item{`"chol"`}{Cholesky of the normal equations, exploiting that
+#'       \eqn{X'X} is symmetric positive definite.}
+#'     \item{`"symengine"`}{The thesis implementation: \pkg{symengine} solves a
+#'       symbolic 4x4 system once and compiles one closure per coefficient, fed
+#'       by the `sum_*` helpers. Kept so the thesis calibration can be
+#'       reproduced and checked directly; it is the slowest and least accurate
+#'       of the four, so it is not the default.}
+#'   }
 #'
 #' @return A function that takes (log_p, t, tc, m, omega) and returns
 #'   a numeric vector c(A, B, C1, C2).
 #'
 #' @importFrom symengine Symbol Matrix Vector solve DoubleVisitor
+#' @importFrom stats .lm.fit
 #' @keywords internal
 #' @noRd
-create_beta_calculator <- function() {
+create_beta_calculator <- function(method = c("crossprod", "qr", "chol",
+                                              "symengine")) {
+  method <- match.arg(method)
+
+  ## The basis, computed once per call and shared across the four columns. The
+  ## symengine branch below instead reaches it through the sum_* helpers, which
+  ## recompute it for every entry of X'X.
+  design <- function(t, tc, m, omega) {
+    tau  <- tc - t
+    taum <- tau^m
+    lt   <- omega * log(tau)
+    cbind(1, taum, taum * cos(lt), taum * sin(lt))
+  }
+  ## cbind() takes column names from the expressions it is given, and those
+  ## names survive into the solution, so c(B = b[2]) would yield "B.taum".
+  ## Strip first: downstream code selects by the exact names A/B/C1/C2.
+  named <- function(b) {
+    b <- unname(as.numeric(b))
+    c(A = b[1], B = b[2], C1 = b[3], C2 = b[4])
+  }
+
+  if (method == "crossprod") {
+    return(function(log_p, t, tc, m, omega) {
+      X <- design(t, tc, m, omega)
+      named(drop(base::solve(crossprod(X), crossprod(X, log_p))))
+    })
+  }
+
+  if (method == "qr") {
+    return(function(log_p, t, tc, m, omega) {
+      named(stats::.lm.fit(design(t, tc, m, omega), log_p)$coefficients)
+    })
+  }
+
+  if (method == "chol") {
+    return(function(log_p, t, tc, m, omega) {
+      X <- design(t, tc, m, omega)
+      named(drop(chol2inv(chol(crossprod(X))) %*% crossprod(X, log_p)))
+    })
+  }
+
+  ## method == "symengine": the thesis implementation, unchanged.
   ## Symbolic variables for X'X matrix elements
   xx11 <- symengine::Symbol("xx11")
   xx12 <- symengine::Symbol("xx12")

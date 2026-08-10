@@ -1,0 +1,852 @@
+---
+title: "Where `fit_lppls()` spends its time"
+subtitle: "The linear-parameter solver, the symengine dependency, Rcpp, and parallelism"
+author: "lpplsF"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    number_sections: true
+    df_print: kable
+params:
+  recompute: false   # FALSE (default): present the recorded measurements below.
+                     # TRUE: re-run every benchmark (~30 min, machine-specific).
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+RECOMPUTE <- isTRUE(params$recompute)
+suppressMessages(pkgload::load_all("..", quiet = TRUE))
+```
+
+# Why this document exists
+
+`fit_lppls()` is the workhorse of the package and it is not fast. A single
+calibration of the S&P 500 example takes well over a minute, a 101-window
+rolling calibration takes a quarter of an hour, and the full thesis-figure
+regeneration takes twenty minutes. The question this document answers is where
+that time actually goes, and what could be done about it.
+
+The investigation began from a specific suspicion: `create_beta_calculator()`
+depends on **symengine**, a computer-algebra system, and symbolic evaluation is
+usually slower than a numeric routine doing the same job. That suspicion turns
+out to be *largely wrong* — symengine is a minor contributor — but pursuing it
+uncovered three larger findings, one of which has nothing to do with the solver
+at all.
+
+Everything below is measured, not estimated. Where a number is a projection
+rather than a measurement it is labelled as such. One earlier attempt at the
+combined measurement produced a self-contradictory result; rather than discard
+it silently, section "A measurement that was wrong" explains what was wrong
+with it, because the reason turned out to be the most valuable finding in the
+document.
+
+## What came of it
+
+This document began as an investigation and has since driven changes to the
+package, so the variants below are no longer hypothetical. Three outcomes:
+
+* **The four solvers are shipped**, selectable through
+  `fit_lppls(..., beta_method =)`. `"crossprod"` is the default;
+  `"symengine"` --- the thesis implementation --- is retained unchanged.
+* **The computer-algebra approach became a test oracle rather than a runtime
+  path**, for reasons measured in section "The CAS as a test oracle".
+* **`factr` and Rcpp remain open questions**, with the evidence set out in
+  the sections "A measurement that was wrong" and "Would Rcpp help?".
+
+Section "Recommendations and status" tracks what is done and what is not.
+
+## The machine
+
+All timings are from one machine and are not portable claims:
+
+| | |
+|---|---|
+| R | 4.5.2 (2025-10-31) |
+| platform | macOS, Apple Silicon (arm64) |
+| cores | 10 (performance + efficiency, which matters in section "Parallelism") |
+| compiler | Apple clang 17.0.0 |
+| BLAS/LAPACK | R's reference `libRlapack` (not a tuned BLAS) |
+
+The last row is worth noting: several variants below lean on `crossprod()`, and a
+tuned BLAS such as Accelerate or OpenBLAS would change their numbers — probably
+in their favour. The reference BLAS is therefore the conservative baseline.
+
+# What is actually being computed
+
+Given the nonlinear parameters $(t_c, m, \omega)$, the LPPLS model is **linear**
+in $A, B, C_1, C_2$. This is the Filimonov--Sornette reformulation, and it is the
+reason the calibration is tractable at all: the four linear parameters never need
+to be searched over, because for any candidate $(t_c, m, \omega)$ they follow in
+closed form from ordinary least squares.
+
+Writing $\tau = t_c - t$, the design matrix is
+
+$$
+X = \bigl[\, \mathbf{1},\;\; \tau^m,\;\; \tau^m \cos(\omega \log \tau),\;\;
+            \tau^m \sin(\omega \log \tau) \,\bigr]
+$$
+
+and the solution is $\beta = (X'X)^{-1} X'y$ with $y$ the log-price vector.
+
+Every variant in this document computes exactly that $\beta$. They differ only in
+**how**, and the differences are what the benchmark measures. Since the outer
+optimiser evaluates this quantity once per objective evaluation — tens of times
+per candidate $t_c$, for hundreds of candidates — its cost is multiplied by a
+very large number before it reaches the user.
+
+## How the symengine method does it
+
+The `"symengine"` method --- the original implementation, and the one the
+thesis used --- has `create_beta_calculator()` use symengine to solve a **general symbolic**
+$4 \times 4$ system once, at construction, and compiles four `DoubleVisitor`
+closures — one per coefficient — that evaluate the resulting closed-form
+expressions. At call time it assembles the 20 distinct entries of $X'X$ and $X'y$
+using the `sum_*` helpers in `R/helpers.R`, then evaluates the four expressions.
+
+Two properties of that arrangement matter for what follows.
+
+First, **each `sum_*` helper recomputes the basis from scratch.** `sum_fg()`
+calls `lppls_f()` and `lppls_g()`, `sum_fh()` calls `lppls_f()` and `lppls_h()`,
+and so on; none of them shares work with any other. Since `lppls_g()` and
+`lppls_h()` each independently recompute $\tau^m$ and $\log \tau$ as well,
+$\tau^m$ ends up being evaluated roughly 24 times per call, and $\cos$ and $\sin$
+roughly 8 times each, where once would do.
+
+Second, **the symmetric entries are computed twice.** The calculator populates
+`xx12` and `xx21` with two separate `sum_f()` calls, `xx13` and `xx31` with two
+`sum_g()` calls, and so on, even though $X'X$ is symmetric by construction.
+
+# The variants
+
+Six implementations were compared. Four of them now ship as `beta_method`
+choices; the remaining two exist purely as controls, to separate the two
+candidate explanations for the symengine method's cost. The controls are the reason this document can attribute
+the cost rather than merely report it.
+
+**A --- `"symengine"`.** The thesis implementation, retained unmodified.
+
+**B --- shared basis + symengine** (control, not shipped). The *same compiled
+symbolic closures*, retrieved from the symengine calculator's own environment via
+`environment(bc)$A_func`, but fed from a basis computed once. Nothing about the
+symbolic machinery changes; only the redundancy is removed.
+
+**C --- shared basis + `solve()`** (control, not shipped). The same 20 entries, assembled into a
+$4 \times 4$ matrix and passed to `solve()`. Nothing about the redundancy
+changes; only the symbolic evaluation is replaced.
+
+B and C differ from one another in exactly one respect, which is what makes the
+attribution possible: **A versus B isolates the redundant recomputation, and B
+versus C isolates the symbolic evaluation.**
+
+**D --- `"crossprod"` (the default).** Abandons the hand-written sums entirely:
+build the $n \times 4$ design matrix and let `crossprod()` form $X'X$ and $X'y$
+in one BLAS call each.
+
+**E --- `"qr"`.** R's internal least-squares routine `.lm.fit()`, which applies a
+Householder QR factorisation to $X$ directly and never forms $X'X$. This is the
+numerically conservative choice, for reasons taken up in section
+"Is the normal-equations shortcut safe?".
+
+**F --- `"chol"`.** Exploits the fact that $X'X$ is symmetric positive definite,
+using `chol()` and `chol2inv()` rather than a general LU solve.
+
+```{r variants, eval=RECOMPUTE}
+basis <- function(t, tc, m, omega) {
+  tau <- tc - t; taum <- tau^m; lt <- omega * log(tau)
+  list(f = taum, g = taum * cos(lt), h = taum * sin(lt))
+}
+# D, now the shipped default, in full:
+beta_crossprod <- function(log_p, t, tc, m, omega) {
+  b <- basis(t, tc, m, omega)
+  X <- cbind(1, b$f, b$g, b$h)
+  s <- solve(crossprod(X), crossprod(X, log_p))
+  c(A = s[1], B = s[2], C1 = s[3], C2 = s[4])
+}
+```
+
+## Results
+
+Median microseconds per call, 200 replications per cell:
+
+| variant | n=200 | n=1000 | n=2428 | speedup at n=2428 |
+|---|---:|---:|---:|---:|
+| A `"symengine"` | 117.5 | 326.2 | 703.7 | 1.0× |
+| B shared + symengine | 43.4 | 65.4 | 105.7 | **6.7×** |
+| C shared + `solve` | 18.6 | 41.5 | 82.5 | 8.5× |
+| **D `"crossprod"` (default)** | 12.8 | 32.2 | **66.2** | **10.6×** |
+| E `"qr"` | 11.0 | 40.5 | 85.1 | 8.3× |
+| F `"chol"` | 11.8 | 31.3 | 65.9 | 10.7× |
+
+## The attribution, which is the point
+
+Read the first three rows together:
+
+- **A → B is 6.7×, with symengine still fully in place.** Removing nothing but
+  the redundant recomputation of the basis recovers roughly two-thirds of the
+  total available gain.
+- **B → C is a further 1.3×.** That is the entire contribution of replacing
+  symbolic evaluation with a numeric solve.
+
+So the framing that motivated this investigation — that symengine is the
+bottleneck — is **not supported**. symengine accounts for about a quarter of the
+achievable improvement. The dominant cost is that `sum_f()`, `sum_g()`,
+`sum_h()` and their products recompute the same three length-$n$ vectors over
+and over within a single call.
+
+This distinction is not academic. It means that a change preserving symengine but
+sharing the basis would capture most of the win, if there were a reason to keep
+the dependency. Section "The dependency question" argues there is not.
+
+Note also that A and B agree to *exactly* zero relative difference, because B
+evaluates the identical symbolic expressions. That is a consistency check on the
+harness, not evidence of superior precision.
+
+# Precision
+
+The table above reports each variant's deviation from the shipped calculator.
+That is an *agreement* measurement, not an accuracy one: it silently treats the
+symengine implementation as ground truth. Since one of the questions this
+document exists to answer is whether symengine buys any accuracy, that
+assumption has to be removed.
+
+So precision is measured against a **constructed ground truth**. Pick
+$\beta_{\text{true}}$, form $X$, and set $y = X\beta_{\text{true}}$ exactly. Every
+variant should then return $\beta_{\text{true}}$, and its deviation is its
+numerical error rather than its disagreement with a peer.
+
+Conditioning is swept through $m$. As $m \to 0$, $\tau^m \to \mathbf{1}$ and the
+second column of $X$ collides with the intercept, so $\kappa$ grows and the
+variants can be separated. Maximum relative error in $\beta$:
+
+| m | $\kappa(X)$ | $\kappa(X'X)$ | A symengine | C sums+solve | D crossprod | E QR | F chol |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0.900 | 2.3e3 | 5.3e6 | 3.7e-14 | 3.3e-14 | 3.0e-14 | **5.8e-16** | 2.5e-14 |
+| 0.600 | 3.2e2 | 1.0e5 | 2.7e-13 | 2.7e-13 | 5.0e-14 | **1.3e-15** | 4.3e-14 |
+| 0.300 | 6.1e1 | 3.7e3 | 1.5e-12 | 1.4e-12 | 1.7e-12 | **4.6e-15** | 1.9e-12 |
+| 0.100 | 4.8e1 | 2.3e3 | 1.4e-10 | 1.4e-10 | 2.1e-12 | **9.4e-15** | 5.5e-12 |
+| 0.050 | 7.9e1 | 6.3e3 | 2.8e-11 | 8.9e-12 | 6.3e-11 | **4.4e-14** | 1.5e-11 |
+| 0.020 | 1.9e2 | 3.5e4 | 8.7e-09 | 8.8e-09 | 1.1e-09 | **4.1e-14** | 1.1e-10 |
+| 0.010 | 3.7e2 | 1.4e5 | 2.7e-08 | 2.7e-08 | 7.3e-12 | **5.1e-14** | 1.4e-09 |
+| 0.005 | 7.3e2 | 5.4e5 | 1.9e-07 | 1.9e-07 | 8.4e-09 | **1.0e-13** | 1.5e-08 |
+
+Repeating with realistic noise added to $y$ — where no exact $\beta$ exists, so
+the QR solution serves as the reference — reproduces the same ordering.
+
+## What this shows
+
+**QR is far and away the most accurate, and it barely degrades.** Across a
+conditioning range spanning three orders of magnitude its error moves only from
+$5.8 \times 10^{-16}$ to $1.0 \times 10^{-13}$, because it never forms $X'X$ and
+so never squares the condition number.
+
+**symengine is the *least* accurate**, together with the numerically equivalent
+`solve()` on the same hand-computed sums. At $m = 0.005$ it is off by
+$1.9 \times 10^{-7}$ — six orders of magnitude worse than QR.
+
+**The loss is in forming $X'X$ from the `sum_*` helpers, not in the symbolic
+step.** A and C track each other to within a few percent at every conditioning
+level, and they differ *only* in whether the $4 \times 4$ system is solved
+symbolically or numerically. So the symbolic solve is neither better nor worse
+than `solve()`; what costs accuracy is accumulating the 20 entries as R-level
+`sum(f * g)` products. `crossprod()` (variant D) forms the same $X'X$ but
+accumulates it in BLAS, and is one to four orders of magnitude more accurate for
+it.
+
+A residual check confirms the errors are real rather than an artefact of the
+comparison. At $m = 0.01$:
+
+| variant | rel. error in $\beta$ | $\lVert y - X\hat\beta \rVert$ |
+|---|---:|---:|
+| A symengine | 2.65e-08 | 1.93e-10 |
+| C sums+solve | 2.71e-08 | 1.97e-10 |
+| D crossprod | 7.29e-12 | 1.09e-13 |
+| E QR | 5.05e-14 | 1.12e-13 |
+| F chol | 1.40e-09 | 4.72e-09 |
+
+symengine's larger parameter error corresponds to a genuinely worse fit — its
+residual norm is three orders of magnitude above QR's.
+
+## A correction
+
+An earlier version of this document concluded that "the fastest variant is also
+the most faithful, so the usual speed-versus-stability trade-off does not
+arise." That was measured as agreement with the shipped calculator, which is
+circular: the shipped calculator is itself the least accurate variant, so
+matching it closely is not evidence of accuracy. Against a real ground truth the
+ordinary trade-off does exist --- QR is meaningfully more accurate than
+`crossprod` --- it is simply irrelevant at the parameter values the package
+actually admits, for the reason given next.
+
+# Is the normal-equations shortcut safe?
+
+Variants D and F solve the **normal equations**, forming $X'X$ explicitly. This
+squares the condition number: $\kappa(X'X) = \kappa(X)^2$. Where $X$ is badly
+conditioned the shortcut can lose a damaging number of digits, which is why
+`.lm.fit()` (variant E) exists as the conservative option.
+
+Whether that matters is an empirical question about *this* design matrix, so it
+was measured rather than assumed:
+
+| case | $\kappa(X)$ | $\kappa(X'X)$ |
+|---|---:|---:|
+| typical ($n=1000$, $m=0.6$, $\omega=8$) | 1.0e2 | 1.7e4 |
+| SPX-like ($n=2428$, $m=0.9$, $\omega=6.16$) | 1.6e3 | 5.8e6 |
+| near-degenerate ($m=0.9$, $\omega=13$) | 2.1e3 | 7.0e6 |
+
+Double precision carries roughly 16 significant digits. The worst case here,
+$\kappa(X'X) \approx 7 \times 10^6$, costs about 7 of them and leaves 9 — far
+more than this application needs, given that the parameters are interpreted to
+three or four decimals.
+
+**The package's own bounds are what make this safe.** `fit_lppls()` defaults to
+`lower[1] = 0.1`, and Filimonov's admissible range is $0.1 \le m \le 0.9$. Every
+row of the precision table at $m \ge 0.1$ has D erring by at most
+$2.1 \times 10^{-12}$ — utterly negligible against parameters interpreted to
+three or four decimals. The degradation only appears at $m < 0.1$, which the
+default search box excludes.
+
+So the choice between D and E is not about correctness within the supported
+range; both are exact there for any practical purpose. It is about how much
+margin to keep:
+
+- **D (`crossprod`)** is 1.3× faster and adequate for every $m$ the package
+  admits by default.
+- **E (`.lm.fit`)** costs 30% more, is 100--1000× more accurate, and holds up if
+  a user widens `lower` toward $m \to 0$ or fits a series where the power-law and
+  constant columns are nearly collinear.
+
+Both ship. **`"crossprod"` is the default**, chosen for speed on the reasoning
+that the package's own bounds already exclude the region where it degrades, and
+**`"qr"` is one argument away** for anyone who widens them. Neither is a
+correctness risk inside the supported range; the decision is only about how much
+margin to keep outside it.
+
+# Where the time goes in a whole calibration
+
+A fast solver is only worth having if the solver is where the time is. Profiling
+a complete `fit_lppls()` call settles that:
+
+```
+=== profile of one fit_lppls() call (shipped) ===
+total sampled time: 11.05 s
+  "beta_calculator"    9.28 s  (83.9% of total)
+```
+
+**83.9% of the entire calibration is inside the beta calculator.** Everything
+else — the L-BFGS-B machinery, `eval_lppls()`, table assembly, the final Brent
+refinement of $t_c$ — shares the remaining sixth.
+
+Substituting variant D at the namespace level, with no other change, on two real
+workloads:
+
+| workload | `"symengine"` | `"crossprod"` (default) | `"qr"` |
+|---|---:|---:|---:|
+| SPX-scale F2 ($n=2428$, $fh=500$) | 84.40 s | **14.39 s (5.9×)** | 16.99 s (5.0×) |
+| MPL mode ($n=1000$, $fh=100$) | 13.17 s | **2.64 s (5.0×)** | 3.06 s (4.3×) |
+
+The estimates agree: $t_c$ to 11 significant digits, SSE to 10 decimals.
+
+The end-to-end factor (5.9×) is smaller than the component factor (10.6×) exactly
+as Amdahl's law requires, since a sixth of the work is untouched. This is the
+honest figure to quote for the change in isolation.
+
+# Would Rcpp help?
+
+Variant D still pays costs that are unavoidable in vectorised R. It allocates
+three length-$n$ vectors for the basis, materialises an $n \times 4$ design
+matrix, and passes over the data several times. A compiled implementation can
+**fuse** the whole thing: a single loop that computes $\tau^m$, $\cos$ and $\sin$
+once per observation and accumulates the 13 distinct inner products directly,
+never allocating anything of length $n$ at all.
+
+The prototype is plain Rcpp — no RcppArmadillo — with a hand-written
+$4 \times 4$ Gauss--Jordan solve, so the measurement reflects the lightest
+possible dependency (`LinkingTo: Rcpp`).
+
+| implementation | µs per call (n=2428) | vs shipped | vs best R |
+|---|---:|---:|---:|
+| shipped (symengine) | 728.2 | 1.0× | 0.1× |
+| R `crossprod` + `solve` | 69.9 | 10.4× | 1.0× |
+| **Rcpp, fused single pass** | **32.9** | **22.1×** | **2.1×** |
+
+So Rcpp roughly doubles the best pure-R result, for a total of 22× on the
+component.
+
+## The larger Rcpp opportunity is elsewhere
+
+`compute_X_matrix()` and `compute_H_matrix()`, used by the modified profile
+likelihood, are **explicit R `for` loops over $n$**, executed once per candidate
+$t_c$. They are far more exposed to compilation than the solver ever was:
+
+| routine | R | Rcpp | speedup |
+|---|---:|---:|---:|
+| `compute_X_matrix()` | 514.6 µs | 37.0 µs | **13.9×** |
+| `compute_H_matrix()` | 1110.5 µs | 33.2 µs | **33.4×** |
+
+These are the largest single-routine gains in the document. They matter
+specifically for `mode = "MPL"`, which is what the rolling calibrations and every
+likelihood interval in the thesis depend on.
+
+## What adopting Rcpp would cost
+
+The package is currently **pure R with no `src/` directory**. That is a real
+property worth pricing before giving it up:
+
+- installation from source would require a C++ toolchain on the user's machine;
+- `R CMD check` gains a compilation step, and CRAN checks across more platforms;
+- `pkgload::load_all()` acquires a compile step, slowing the edit--test loop;
+- the package becomes harder to inspect for a reader who knows R but not C++,
+  which matters for something written as a companion to a thesis.
+
+The gains are real but second-order relative to the pure-R change: 22× versus
+10.6× on the solver. Since symengine is being kept (section
+"The dependency question"), the toolchain requirement exists either way,
+so that particular objection no longer applies --- but the sequencing argument
+does: the cheap change was worth taking first.
+
+# Parallelism
+
+`fit_lppls()` in `"F2"` and `"MPL"` mode loops over `fh` candidate values of
+$t_c$, running an independent L-BFGS-B optimisation over $(m, \omega)$ for each.
+Those iterations do not communicate. This is the natural parallel axis, and it is
+wide: 500 candidates for the SPX calibration.
+
+Measured on the real inner problem, over the already-optimised solver, so that
+the figures reflect achievable rather than flattering speedups:
+
+| scheme | time | speedup | efficiency | results identical |
+|---|---:|---:|---:|---|
+| serial | 22.35 s | 1.00× | — | — |
+| `mclapply`, 2 cores | 10.73 s | 2.08× | 104% | yes |
+| `mclapply`, 4 cores | 6.33 s | 3.53× | 88% | yes |
+| `mclapply`, 8 cores | 4.70 s | 4.76× | 59% | yes |
+| `mclapply`, 10 cores | 4.53 s | 4.94× | 49% | yes |
+| `parLapply` (PSOCK), 8 | 5.07 s | 4.41× | 55% | yes |
+
+Efficiency falls away sharply beyond four cores. This is an Apple Silicon machine
+with a mix of performance and efficiency cores, and the efficiency cores
+contribute far less per thread; on a homogeneous many-core machine the curve
+would look better. The practical reading is that **the first four cores are worth
+having and the rest are not**, at least here.
+
+## The caveats are substantial
+
+Parallelising this loop is not a drop-in change, and three obstacles deserve
+weighing before anyone attempts it.
+
+**The loop is not currently side-effect free.** It accumulates
+`out_of_range_tracker` and builds `fit2_best_for_each_tc` incrementally. A
+parallel version must return per-$t_c$ results and combine them afterwards, which
+is a genuine restructuring of `fit_lppls()`, not an annotation.
+
+**Random restarts break reproducibility.** With `num_searches > 1`, each
+candidate draws random initial values. Under `mclapply` the RNG stream must be
+managed explicitly (`mc.set.seed`, or L'Ecuyer streams) or results become
+non-reproducible — and even managed correctly they will not match the serial
+sequence. Every cached fit and every thesis figure would shift. The measurements
+above used a single deterministic start, which is why results came out identical;
+that guarantee does **not** carry over to the multi-start case.
+
+**Nested parallelism is a live hazard in this project.** The rolling and
+Monte-Carlo experiments already run `parallel::mclapply(mc.cores = 8)` at the
+*experiment* level. If `fit_lppls()` also parallelised internally, the two would
+compose into 64 processes on a 10-core machine. Oversubscription of exactly this
+kind previously caused a multi-hour stall with no completed work. Any internal
+parallelism therefore needs to be **off by default** and controlled by an
+explicit argument, so that the outer loop remains the place where cores are
+spent.
+
+Given that the outer level is already parallelised and is the coarser, safer
+axis, internal parallelism is the least attractive of the three changes
+considered here despite its headline number.
+
+# A measurement that was wrong
+
+The first attempt to measure the combined effect produced this:
+
+```
+serial, symengine (as shipped) :    2.36 s    1.00x
+serial, R crossprod            :   22.43 s    0.11x
+```
+
+The shipped implementation appeared **ten times faster** than a variant that had
+just beaten it tenfold, and an equality check across variants failed. Rather than
+report it, the cause was traced — and it is the most consequential finding here.
+
+The harness ran a real `optim()` call per candidate. The three solvers agree only
+to about $10^{-14}$, and those last-digit differences are enough to send L-BFGS-B
+down different paths. The variants were therefore not doing equal work: the
+timings compared **different numbers of objective evaluations**, not different
+speeds.
+
+The reason the paths diverged so wildly is `factr`.
+
+## `factr = 1e-8` asks for the impossible
+
+`optim()`'s `factr` for L-BFGS-B is a multiplier on machine epsilon, not an
+absolute tolerance. The package's calls — and every call in the thesis code —
+use `factr = 1e-08`, which requests a convergence tolerance of
+
+$$
+10^{-8} \times \varepsilon_{\text{mach}}
+  = 10^{-8} \times 2.22 \times 10^{-16}
+  = 2.22 \times 10^{-24},
+$$
+
+eight orders of magnitude below what double precision can represent. That
+criterion can never be satisfied. The optimiser therefore does not converge; it
+runs until the line search fails and returns **convergence code 52**
+(`ABNORMAL_TERMINATION_IN_LNSRCH`).
+
+At a single representative $t_c$, with the identical optimum found either way:
+
+| solver | factr | evaluations | convergence | objective |
+|---|---:|---:|---:|---:|
+| symengine | 1e-08 | 58 | 52 | 0.26053824 |
+| R crossprod | 1e-08 | 62 | 0 | 0.26053824 |
+| Rcpp | 1e-08 | 105 | 52 | 0.26053824 |
+| symengine | 1e+07 | 8 | 0 | 0.26053824 |
+| R crossprod | 1e+07 | 8 | 0 | 0.26053824 |
+| Rcpp | 1e+07 | 8 | 0 | 0.26053824 |
+
+With R's default `factr = 1e7` all three agree on 8 evaluations, converge
+cleanly, and land on the same objective value.
+
+## Confirming it across the grid
+
+One point proves nothing, so the comparison was repeated over all 500 candidate
+$t_c$:
+
+| | `factr = 1e-8` | `factr = 1e+7` |
+|---|---:|---:|
+| objective evaluations, median | 59 | **9** |
+| objective evaluations, total | 31,173 | **5,831** (5.3× fewer) |
+| clean convergence (code 0) | 181 / 500 | **490 / 500** |
+
+And the answers barely move. Comparing the optimum found under the loose setting
+against the tight one:
+
+- SSE: maximum absolute difference $1.2 \times 10^{-8}$, maximum relative
+  difference $7.6 \times 10^{-9}$;
+- $m$: maximum absolute difference $1.2 \times 10^{-5}$;
+- $\omega$: maximum absolute difference $1.4 \times 10^{-5}$;
+- the selected best $t_c$ is **2715 under both**.
+
+Most striking: the loose setting produced a *worse* objective in only 53 of 500
+cases, meaning that in the other 447 it was equal or better. **The tight
+tolerance is not buying accuracy.** It cannot, because it never converges — it
+terminates on line-search failure, and where that failure lands is essentially
+arbitrary.
+
+So `factr = 1e-08` costs roughly a factor of five in objective evaluations and
+returns nothing for it. Correcting it requires no new dependency, no
+restructuring, and no compiled code — only a changed default.
+
+The one real cost is that estimates would move in their fifth decimal. That is
+immaterial for interpretation, where $m$ and $\omega$ are read to two or three
+decimals, but it does mean cached fits would no longer reproduce byte-identically
+against the current ones.
+
+## The combined measurement, done properly
+
+Redone on a **fixed evaluation budget** — 500 candidates × 60 objective
+evaluations each — so that every variant provably performs identical work:
+
+| configuration | time | speedup |
+|---|---:|---:|
+| serial, symengine (as shipped) | 28.38 s | 1.00× |
+| serial, R `crossprod` | 4.23 s | 6.70× |
+| serial, Rcpp fused | 2.98 s | 9.52× |
+| 8 cores, R `crossprod` | 0.86 s | 33.05× |
+| 8 cores, Rcpp fused | **0.63 s** | **44.82×** |
+
+These serial factors (6.7×, 9.5×) are lower than the component factors (10.6×,
+22×) because the fixed budget also calls `eval_lppls()` on every evaluation, and
+that cost is common to all variants — Amdahl again, one level down.
+
+# Does symengine buy anything at all?
+
+The investigation started from the assumption that symengine was costing
+performance. Having measured it, the fuller question is whether it is buying
+anything to offset that cost. Taking the possibilities in turn:
+
+**Precision: no --- it is the worst of the six.** Section "Precision"
+settles this against a constructed ground truth. symengine is the least accurate
+variant at every conditioning level tested, by up to six orders of magnitude, and
+its larger parameter error shows up as a genuinely worse residual.
+
+**A more stable solve: no.** One might expect a symbolic solution to be exact
+where a numeric one is not. It is not, because the expression is evaluated in the
+same double precision as everything else, and a closed-form $4 \times 4$ solve
+involves differences of products that cancel. Variants A and C confirm this
+empirically: solving the identical matrix symbolically or with `solve()` gives
+errors that agree to within a few percent.
+
+**Speed: no.** It is 10.6× slower than the best pure-R alternative and 22× slower
+than the Rcpp version.
+
+**Avoiding a BLAS dependency: no.** R links a BLAS regardless; `crossprod()`
+introduces no new requirement.
+
+**Reusable symbolic machinery: not as used.** Symbolic differentiation could in
+principle generate the gradient and Hessian expressions that `compute_X_matrix()`
+and `compute_H_matrix()` currently hard-code by hand — which would be a real
+argument for keeping a CAS in the package. But that is not what the code does:
+symengine is used for exactly one $4 \times 4$ linear solve, and the derivative
+matrices are hand-transcribed from the paper. (Hand-transcribed with an error, as
+it happens: the asymmetric $H$ bug. A symbolically generated $H$ would have been
+symmetric by construction, so the *unrealised* version of this argument is the
+strongest case for a CAS anywhere in the package.)
+
+**Documentation value: marginal, and cheaper by other means.** The symbolic setup
+does record what is being solved. A four-line comment does the same without a
+47.5 MB dependency.
+
+So on the measurements alone symengine earns nothing as a *solver*. It is slower,
+less accurate, and used for a single task that `solve()` performs better.
+
+## Why it is kept anyway
+
+There is a reason the benchmarks cannot see. The `"symengine"` method is the
+calibration the thesis ran, and the symbolic solve together with the `sum_*`
+helpers corresponds directly to the derivations in the thesis appendix. Keeping
+it lets a reader reproduce the thesis numbers exactly and compare the code
+against the equations it came from, rather than taking on trust that a faster
+reimplementation agrees.
+
+So `"symengine"` ships, unchanged, as a non-default option. It is not there
+because it computes anything better; it is there because it computes the same
+thing *in the form the thesis derived*.
+
+# The CAS as a test oracle
+
+The one place a computer-algebra system would genuinely pay --- deriving the MPL
+gradient and Hessian rather than transcribing them --- is not where symengine was
+being applied. That gap is now closed, though not as a runtime path.
+
+`compute_X_matrix()` and `compute_H_matrix()` transcribe Filimonov (2017)
+eq. (36) and (37) by hand. A CAS can derive them instead: state the model once,
+and differentiate.
+
+```{r cas-derive, eval=RECOMPUTE}
+tau <- symengine::Symbol("tau"); m <- symengine::Symbol("m")
+w   <- symengine::Symbol("w");   A <- symengine::Symbol("A")
+B   <- symengine::Symbol("B");   C1 <- symengine::Symbol("C1")
+C2  <- symengine::Symbol("C2")
+f <- A + tau^m * (B + C1 * cos(w * log(tau)) + C2 * sin(w * log(tau)))
+symengine::D(f, m)                    # a column of X
+symengine::D(symengine::D(f, m), w)   # an entry of H
+```
+
+The derived expressions reproduce the hand-written matrices to
+$3.6 \times 10^{-15}$, and confirm that the entries the hand-written code leaves
+at zero --- every second derivative among the linear parameters --- are
+identically zero. The `## The rest is zero` comment was therefore correct; the
+defect was only the missing mirroring of `H[2,5]` and `H[2,6]`.
+
+## Why not as a runtime path
+
+The obvious next thought is to replace the hand-written loops with compiled
+symbolic ones. Measured, that is a poor trade:
+
+| X matrix (n = 2428) | median µs | vs hand-written |
+|---|---:|---:|
+| hand-written R loop | 510.9 | 1.0× |
+| CAS (`DoubleVisitor`) | 868.3 | **0.6× --- slower** |
+| Rcpp | 36.6 | 14.0× |
+
+The CAS path is **1.7 times slower than what is already there**, because each
+column is a separate visitor call over the whole vector, re-evaluating $\tau^m$
+and the trigonometry per column instead of sharing them. Derivation itself is
+free (under 0.01 s, once per session).
+
+## Where it does pay
+
+Its value is entirely at derivation time, which makes it a **test oracle** rather
+than a runtime option. `tests/testthat/test-beta_method.R` derives the gradient
+and Hessian symbolically, compares them against the hand-written implementations,
+and asserts that $H$ is symmetric --- mixed partials commute, so
+`D(D(f, a), b)` and `D(D(f, b), a)` are the same expression and an asymmetric $H$
+cannot be produced.
+
+That is precisely the check that would have caught the asymmetric-$H$ defect
+automatically, and it will catch any future transcription slip in the same place,
+at no runtime cost. The hand-written matrices remain the implementation, for the
+same reason the `"symengine"` solver is kept: they are what the thesis derived,
+and what a reader can compare against the appendix.
+
+# The dependency question
+
+An earlier draft of this document recommended dropping symengine altogether.
+That recommendation was **not** adopted, and the reasoning is worth recording
+because the measurements alone would have supported it.
+
+The coupling is unusually clean, so removal would have been easy:
+
+- symengine appears **only** in `R/helpers.R`, inside
+  `create_beta_calculator()`;
+- `lppls_f()`, `lppls_g()`, `lppls_h()` and all twelve `sum_*` helpers have
+  **no callers anywhere else in the package** — they exist solely to feed it;
+- the installed footprint is **47.5 MB**, and symengine requires a C++ toolchain
+  to build from source.
+
+What the measurements could not weigh is the reproduction value described in
+section "Why it is kept anyway": the symengine path *is* the thesis
+calibration, and it is the version a reader can check against the appendix. Since
+it is now one option among four rather than the only implementation, its cost is
+paid only by users who ask for it, while its benefit — an exactly reproducible
+thesis calibration, and a second independent implementation to cross-check the
+default against — is available to everyone. The `sum_*` helpers stay live for the
+same reason.
+
+The dependency also acquired a second job it is genuinely good at: the test
+oracle of section "The CAS as a test oracle". So symengine now earns its
+place twice over, in neither case as a solver.
+
+One irony is worth stating plainly: adopting Rcpp would introduce a compilation
+requirement that dropping symengine would have removed. Since symengine is
+staying, that argument no longer cuts against Rcpp — the toolchain requirement is
+already there.
+
+# Recommendations and status
+
+## Done
+
+**The solver is now selectable, defaulting to `"crossprod"`.**
+`create_beta_calculator(method =)` and `fit_lppls(..., beta_method =)` offer
+`"crossprod"`, `"qr"`, `"chol"` and `"symengine"`. The default was chosen for
+speed: within the admissible $0.1 \le m \le 0.9$ both `"crossprod"` and `"qr"`
+are exact to roughly $10^{-12}$ or better, so the 1.3× speed difference decides
+it, and `"qr"` remains one argument away for anyone widening the bounds.
+
+Verified on the S&P 500 calibration that motivated the investigation:
+
+| `beta_method` | time | $t_c$ | MPLE | LI(0.05) |
+|---|---:|---:|---:|---|
+| `"symengine"` | 87.5 s | 2717.00880445 | 2717 | [2696, 2757] |
+| `"crossprod"` | **18.7 s** | 2717.00880445 | 2717 | [2696, 2757] |
+
+**4.7× faster, with every reported quantity identical.**
+
+**The CAS became a test oracle** rather than a runtime path, for the reasons in
+section "The CAS as a test oracle".
+
+**A related waste was removed.** `compute_mpl_loglik()` was calling
+`create_beta_calculator()` **once per candidate $t_c$**, rebuilding the symbolic
+solve 500 times in an SPX-scale fit at 1.73 ms each --- about 0.9 s per fit spent
+constructing a function it then used once. The calculator is now built once and
+threaded through, which also makes `beta_method` reach the MPL path.
+
+## Still open
+
+**Fix `factr`.** Roughly 5× fewer objective evaluations, no structural change, no
+dependency change, and the current setting is not defensible on its own terms ---
+it requests a tolerance below machine epsilon and guarantees line-search failure.
+Changing the default from `1e-08` to `1e7` is a one-line change. Estimates move
+in the fifth decimal, so cached fits would need regenerating; a direct comparison
+found every reported thesis quantity unchanged and every figure visually
+identical.
+
+This is now the **largest remaining gain**, and it compounds with the solver
+change rather than overlapping it: one cuts the number of objective evaluations,
+the other the cost of each. Together they would take the SPX calibration from
+about 84 seconds to the low single digits.
+
+**Consider Rcpp for `compute_X_matrix()` and `compute_H_matrix()`.** 13.9× and
+33.4× respectively, and unlike the solver these are explicit R loops with no
+vectorised alternative --- the strongest case for compiled code in the package. It
+introduces a build toolchain requirement, so it deserves a deliberate decision;
+note that keeping symengine means that requirement already exists.
+
+## Declined
+
+**Internal parallelism.** The measured 4.8× at eight cores is real, but the axis
+is already exploited at the experiment level, the restructuring is invasive,
+reproducibility under random restarts is genuinely at risk, and nested
+parallelism has already cost this project hours. A planned sweep layer over many
+series would widen the outer axis further, making internal parallelism actively
+counterproductive: cores spent inside `fit_lppls()` are cores unavailable to the
+sweep.
+
+# Reproducing this
+
+Knit with `params$recompute = TRUE` to re-run everything (roughly 30 minutes, and
+the numbers will differ by machine):
+
+```r
+rmarkdown::render("misc/bench_beta.Rmd", params = list(recompute = TRUE))
+```
+
+The benchmark harnesses are inlined in the chunks above. The Rcpp prototypes are
+in `misc/` alongside this file; they are prototypes for measurement and are not
+part of the package.
+
+```{r bench-live, eval=RECOMPUTE}
+## The component benchmark of section "The variants". The remaining harnesses --
+## the profile, the end-to-end substitution, the parallel scaling and the factr
+## comparison -- are described in full in their sections and are quick to
+## reconstruct from them.
+if (!requireNamespace("microbenchmark", quietly = TRUE)) {
+  stop("Package 'microbenchmark' is needed to re-run these benchmarks.")
+}
+bc  <- lpplsF:::create_beta_calculator()
+env <- environment(bc)
+
+vals_from_basis <- function(b, log_p, nn) {
+  f <- b$f; g <- b$g; h <- b$h
+  sf <- sum(f); sg <- sum(g); sh <- sum(h)
+  sff <- sum(f * f); sgg <- sum(g * g); shh <- sum(h * h)
+  sfg <- sum(f * g); sfh <- sum(f * h); sgh <- sum(g * h)
+  list(xx11 = nn, xx12 = sf, xx13 = sg, xx14 = sh,
+       xx21 = sf, xx22 = sff, xx23 = sfg, xx24 = sfh,
+       xx31 = sg, xx32 = sfg, xx33 = sgg, xx34 = sgh,
+       xx41 = sh, xx42 = sfh, xx43 = sgh, xx44 = shh,
+       xy1 = sum(log_p), xy2 = sum(log_p * f),
+       xy3 = sum(log_p * g), xy4 = sum(log_p * h))
+}
+
+variants <- list(
+  "A shipped (symengine)" = function(y, t, tc, m, w) bc(y, t, tc, m, w),
+  "B shared + symengine" = function(y, t, tc, m, w) {
+    v <- vals_from_basis(basis(t, tc, m, w), y, length(t))
+    c(A = drop(do.call(env$A_func, v)),  B  = drop(do.call(env$B_func, v)),
+      C1 = drop(do.call(env$C1_func, v)), C2 = drop(do.call(env$C2_func, v)))
+  },
+  "C shared + solve" = function(y, t, tc, m, w) {
+    v <- vals_from_basis(basis(t, tc, m, w), y, length(t))
+    XX <- matrix(c(v$xx11, v$xx12, v$xx13, v$xx14, v$xx21, v$xx22, v$xx23, v$xx24,
+                   v$xx31, v$xx32, v$xx33, v$xx34, v$xx41, v$xx42, v$xx43, v$xx44),
+                 4L, 4L, byrow = TRUE)
+    s <- solve(XX, c(v$xy1, v$xy2, v$xy3, v$xy4))
+    c(A = s[1], B = s[2], C1 = s[3], C2 = s[4])
+  },
+  "D crossprod + solve" = beta_crossprod,
+  "E .lm.fit (QR)" = function(y, t, tc, m, w) {
+    b <- basis(t, tc, m, w)
+    s <- .lm.fit(cbind(1, b$f, b$g, b$h), y)$coefficients
+    c(A = s[1], B = s[2], C1 = s[3], C2 = s[4])
+  },
+  "F chol" = function(y, t, tc, m, w) {
+    b <- basis(t, tc, m, w); X <- cbind(1, b$f, b$g, b$h)
+    s <- chol2inv(chol(crossprod(X))) %*% crossprod(X, y)
+    c(A = s[1], B = s[2], C1 = s[3], C2 = s[4])
+  })
+
+set.seed(1)
+n  <- 2428; tt <- seq_len(n); tc <- n + 21
+y  <- eval_lppls(tt, 8, -0.025, 0.0015, 0.001, tc, 0.6, 8) + rnorm(n) * 0.01
+ref <- variants[[1]](y, tt, tc, 0.6, 8)
+acc <- vapply(variants, function(f) max(abs((f(y, tt, tc, 0.6, 8) - ref) / ref)), numeric(1))
+mb  <- do.call(microbenchmark::microbenchmark,
+               c(lapply(variants, function(f) bquote(.(f)(y, tt, tc, 0.6, 8))),
+                 list(times = 200L)))
+knitr::kable(
+  data.frame(variant = names(variants),
+             `max rel. deviation` = sprintf("%.2e", acc),
+             `median us` = round(tapply(mb$time, mb$expr, median) / 1000, 1),
+             check.names = FALSE),
+  row.names = FALSE)
+```

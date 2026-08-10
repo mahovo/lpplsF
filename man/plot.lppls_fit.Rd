@@ -35,7 +35,7 @@ two clusters separate visibly, which is invisible in the point estimate.
 
 \code{"param_basin"} is the per-\code{tc} parameter plot with the same split applied to
 every parameter, not just the objective. It answers what \code{"basin"} cannot:
-\emph{which} parameters the inferior fits differ in — typically \code{omega} jumping
+\emph{which} parameters the inferior fits differ in -- typically \code{omega} jumping
 between local optima while \code{m} stays pinned at its bound.
 }
 \seealso{

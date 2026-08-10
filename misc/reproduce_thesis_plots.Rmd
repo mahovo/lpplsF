@@ -320,7 +320,7 @@ fit_call <- function(log_price) {
     log_price = log_price, fh = 300, hold_out = 200,
     lower = c(0.1, 6, -0.03, 0.8), upper = c(0.9, 13, -1e-14, 1e6),
     tc_init = 1950, m_init = 0.2, o_init = 12, num_searches = 1,
-    mode = "MPL", mpl_cutoff = c(0.05, 0.1, 0.5), factr = 1e-08,
+    mode = "MPL", mpl_cutoff = c(0.05, 0.1, 0.5),
     fp = TRUE, pp = TRUE, tp = c(1, 1, 1), tp_id = 1
   )
 }
@@ -798,7 +798,7 @@ spx_fit <- fit_lppls(
   log_price = df_spx$logpris, fh = 500, hold_out = 500,
   lower = c(0.1, 6, -0.5, 0.8), upper = c(0.9, 13, -1e-14, 1e6),
   tc_init = n_cal_spx + 250, m_init = 0.2, o_init = 12, num_searches = 1,
-  mode = "MPL", mpl_cutoff = c(0.05, 0.1, 0.5), factr = 1e-08,
+  mode = "MPL", mpl_cutoff = c(0.05, 0.1, 0.5),
   fp = TRUE, mpl_plot = TRUE, tp = c(1, 0, 0), pp = TRUE)
 ```
 

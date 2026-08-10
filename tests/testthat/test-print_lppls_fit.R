@@ -32,7 +32,7 @@ test_that("fit_lppls returns a classed object carrying its own settings", {
   expect_true(is.list(f))              # still a plain list underneath
   expect_named(f$fit_args,
                c("mode", "n", "fh", "hold_out", "lower", "upper",
-                 "num_searches", "mpl_cutoff"))
+                 "num_searches", "mpl_cutoff", "beta_method"))
   expect_identical(f$fit_args$mode, "F2")
   expect_identical(f$fit_args$n, 200)
   expect_identical(f$fit_args$fh, 10)

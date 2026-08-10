@@ -75,10 +75,43 @@
 #'   the two.
 #'   3 columns of plots for smallest and biggest value of `omega`, and value
 #'   between the two.
-#' @param factr Numeric, convergence tolerance for optim control list when
-#'   using L-BFGS-B. See `optim()` documentation.
+#' @param factr Numeric, convergence tolerance for the L-BFGS-B `control` list
+#'   (default `1e7`, which is also [stats::optim()]'s own default). It is a
+#'   **multiplier on machine epsilon**, not an absolute tolerance: the optimiser
+#'   stops when the relative reduction in the objective falls below
+#'   `factr * .Machine$double.eps`, so `1e7` asks for roughly `1e-9`.
+#'
+#'   Smaller is not automatically better. Any value below about `1e0` requests a
+#'   tolerance finer than double precision can represent, which cannot be
+#'   satisfied: L-BFGS-B then runs until its line search fails and returns
+#'   convergence code 52 rather than converging. Earlier versions of this package
+#'   defaulted to `1e-08`, which requests `2.2e-24` and had exactly that effect --
+#'   about five times more objective evaluations than `1e7`, ending in
+#'   line-search failure for two thirds of the candidate `tc` values, and
+#'   reaching the same optimum. See `misc/bench_beta.Rmd` for the measurements.
 #' @param fb Logical, whether to print feedback during execution (default
 #'   `FALSE`).
+#' @param beta_method Character, how to solve for the linear parameters
+#'   \eqn{A, B, C_1, C_2} given \eqn{(t_c, m, \omega)}. All choices compute the
+#'   same least-squares solution and differ only in speed and conditioning; the
+#'   solver is evaluated once per objective evaluation, so it dominates the cost
+#'   of a calibration.
+#'   \describe{
+#'     \item{`"crossprod"`}{(default) Normal equations via [crossprod()] and
+#'       [solve()]. Fastest, and exact to well within anything interpretable
+#'       over the admissible \eqn{0.1 \le m \le 0.9}{0.1 <= m <= 0.9}.}
+#'     \item{`"qr"`}{Householder QR via [.lm.fit()]. Never forms \eqn{X'X}, so it
+#'       does not square the condition number. About 30% slower and markedly
+#'       more accurate; prefer it if `lower[1]` is widened toward
+#'       \eqn{m \to 0}{m -> 0}.}
+#'     \item{`"chol"`}{Cholesky of the normal equations.}
+#'     \item{`"symengine"`}{The thesis implementation: a symbolic 4x4 solve
+#'       compiled to one closure per coefficient. Retained so the thesis
+#'       calibration can be reproduced and inspected directly -- it is roughly
+#'       ten times slower than the default and the least accurate of the four.}
+#'   }
+#'   See `misc/bench_beta.Rmd` for the timings and precision measurements behind
+#'   these characterisations.
 #'
 #' @return A list containing:
 #'   \describe{
@@ -176,7 +209,7 @@
 #'     \item{log_price}{The input series, so diagnostics that need the data do
 #'       not make the caller supply it again. The calibration slice is
 #'       `log_price[seq_len(fit_args$n)]`.}
-#'     \item{fit_args}{List recording the settings this calibration ran with —
+#'     \item{fit_args}{List recording the settings this calibration ran with --
 #'       `mode`, `n` (calibration length), `fh`, `hold_out`, `lower`, `upper`,
 #'       `num_searches` and `mpl_cutoff`. Diagnostics need these: whether
 #'       `m = 0.9` is a boundary solution or an interior optimum cannot be told
@@ -188,7 +221,7 @@
 #'   diagnostics:
 #'   \describe{
 #'     \item{[print.lppls_fit()]}{Printing the fit reports the estimate together
-#'       with the checks that decide whether to trust it — bounds, optimisation
+#'       with the checks that decide whether to trust it -- bounds, optimisation
 #'       basins, search filters and the extent of the modified profile
 #'       likelihood. Warnings are listed only when something is wrong.}
 #'     \item{[summary.lppls_fit()]}{The same as values rather than text, plus the
@@ -282,9 +315,12 @@ fit_lppls <- function(
   tp_id = 1,
   pp = FALSE,
   mp = FALSE,
-  factr = 1e-08,
-  fb = FALSE
+  factr = 1e7,
+  fb = FALSE,
+  beta_method = c("crossprod", "qr", "chol", "symengine")
 ) {
+
+  beta_method <- match.arg(beta_method)
 
   if (!mode %in% c("F1", "F2", "MPL")) {
     stop("mode must be one of: 'F1', 'F2', 'MPL'")
@@ -305,8 +341,8 @@ fit_lppls <- function(
   t <- time_id[1:n]
   log_p <- log_price[1:n]
 
-  ## Create beta calculator (uses symbolic math for efficiency)
-  beta_calculator <- create_beta_calculator()
+  ## Create the beta calculator once, with the requested solver.
+  beta_calculator <- create_beta_calculator(beta_method)
 
   ## Internal Sum of Squared Errors functions
   ##
@@ -729,7 +765,8 @@ fit_lppls <- function(
       cutoff = mpl_cutoff,
       lower = lower,
       upper = upper,
-      fb = fb
+      fb = fb,
+      beta_calculator = beta_calculator
     )
 
     if (mpl_plot) {
@@ -911,7 +948,8 @@ fit_lppls <- function(
         lower        = lower,
         upper        = upper,
         num_searches = num_searches,
-        mpl_cutoff   = mpl_cutoff
+        mpl_cutoff   = mpl_cutoff,
+        beta_method  = beta_method
       )
     ),
     class = "lppls_fit"
@@ -923,7 +961,7 @@ fit_lppls <- function(
 #'
 #' Kept separate from the printing so the checks can be tested on values instead
 #' of on formatted output. Components are `NULL` when the fit does not carry what
-#' they need — `fit_args` is absent from objects made before it was recorded, and
+#' they need -- `fit_args` is absent from objects made before it was recorded, and
 #' without `lower`/`upper` no boundary check is possible.
 #'
 #' @param x An `"lppls_fit"` object.
@@ -962,7 +1000,7 @@ fit_lppls <- function(
   ## Optimisation basins. Distance from the best SSE will not do on its own: In
   ## "F2"/"MPL" the conditional SSE legitimately rises away from the optimal tc,
   ## so a perfectly good profile also has fits well above the minimum. What marks
-  ## a failed search is a *gap* — the sorted SSEs fall into a good cluster and a
+  ## a failed search is a *gap* -- the sorted SSEs fall into a good cluster and a
   ## distinctly worse one. So measure the largest gap between consecutive sorted
   ## values as a share of the total spread: scale-free, bounded in [0, 1], and
   ## near 0 for a smooth profile whatever the noise level.
@@ -1064,7 +1102,7 @@ fit_lppls <- function(
 #' Prints the point estimate together with the checks that decide whether it can
 #' be trusted: whether the solution sits at an optimisation bound, how many of the
 #' individual fits reached the best basin found, how many were filtered on `B` or
-#' damping, and — in `"MPL"` mode — whether the modified profile likelihood is
+#' damping, and -- in `"MPL"` mode -- whether the modified profile likelihood is
 #' defined across the whole grid and whether its likelihood intervals are closed
 #' by the likelihood or merely by the edge of that grid.
 #'
@@ -1225,7 +1263,7 @@ print.lppls_fit <- function(x, ...) {
 #'
 #' `"param_basin"` is the per-`tc` parameter plot with the same split applied to
 #' every parameter, not just the objective. It answers what `"basin"` cannot:
-#' *which* parameters the inferior fits differ in — typically `omega` jumping
+#' *which* parameters the inferior fits differ in -- typically `omega` jumping
 #' between local optima while `m` stays pinned at its bound.
 #'
 #' @param x An object of class `"lppls_fit"` from [fit_lppls()].
