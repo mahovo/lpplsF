@@ -254,6 +254,40 @@
 #' **Mode MPL**: Modified Profile Likelihood inference from Filimonov et al. (2017).
 #' Provides likelihood-based confidence intervals for `tc`.
 #'
+#' @section Profiling `mode = "MPL"` on macOS:
+#' Running a sampling profiler over an MPL calibration can **crash the R
+#' session** ("Illegal instruction: 4") on macOS builds that use Apple's
+#' Accelerate framework as their BLAS -- which is the default for the CRAN macOS
+#' build of R. This affects [utils::Rprof()] and everything layered on it
+#' (`profvis`, the RStudio profiler, `proftools`).
+#'
+#' The fault is an interaction between R's profiler and Accelerate's `DGEMM`,
+#' not a fault in this package: it reproduces in plain R with no packages
+#' loaded, via `Rprof(tempfile()); for (i in 1:2e5) crossprod(A, B)` for
+#' matrices `A`, `B` of a few hundred rows or more. MPL mode is the only part of
+#' lpplsF that reaches it, because the modified profile likelihood is the only
+#' place that multiplies two matrices; every other product here is a
+#' one-argument [crossprod()], a matrix-vector product or a decomposition, none
+#' of which are affected. Fitting itself is unaffected -- the crash requires a
+#' profiler to be running.
+#'
+#' To profile MPL mode, take R's own matrix products instead of the BLAS for the
+#' duration of the profiling session:
+#'
+#' ```r
+#' old <- options(matprod = "internal")
+#' Rprof("prof.out")
+#' fit <- fit_lppls(log_price, mode = "MPL", ...)
+#' Rprof(NULL)
+#' options(old)
+#' summaryRprof("prof.out")
+#' ```
+#'
+#' `matprod = "internal"` costs only a few percent on a whole MPL fit, since the
+#' fit does relatively few matrix-matrix products. It does sum in a different
+#' order, so estimates move in the last couple of digits; that is immaterial for
+#' a profiling run but is a reason not to set it globally.
+#'
 #' @references
 #' Filimonov, V., & Sornette, D. (2013). A stable and robust calibration scheme
 #' of the log-periodic power law model. Physica A, 392(17), 3698-3707.

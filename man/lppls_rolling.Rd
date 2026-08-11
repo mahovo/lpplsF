@@ -77,6 +77,14 @@ The likelihood-interval columns (\code{LI5l} ... \code{tc_hat_mpl}) are populate
 when the fit is run in \code{mode = "MPL"} (the default); under \code{mode = "F2"} they
 are \code{NA} but the point estimates and \code{sse_cal} (hence Lagrange) are identical.
 }
+\section{Profiling on macOS}{
+
+\code{mode} defaults to \code{"MPL"}, so profiling a rolling calibration on macOS hits
+the R-profiler/Accelerate crash described under "Profiling \verb{mode = \\"MPL\\"} on
+macOS" in \code{\link[=fit_lppls]{fit_lppls()}}. The same \code{options(matprod = "internal")} workaround
+applies. Unprofiled runs are unaffected.
+}
+
 \examples{
 \dontrun{
 set.seed(3630)

@@ -307,6 +307,41 @@ This is more robust than F1 for ill-conditioned problems.
 \strong{Mode MPL}: Modified Profile Likelihood inference from Filimonov et al. (2017).
 Provides likelihood-based confidence intervals for \code{tc}.
 }
+\section{Profiling \code{mode = "MPL"} on macOS}{
+
+Running a sampling profiler over an MPL calibration can \strong{crash the R
+session} ("Illegal instruction: 4") on macOS builds that use Apple's
+Accelerate framework as their BLAS -- which is the default for the CRAN macOS
+build of R. This affects \code{\link[utils:Rprof]{utils::Rprof()}} and everything layered on it
+(\code{profvis}, the RStudio profiler, \code{proftools}).
+
+The fault is an interaction between R's profiler and Accelerate's \code{DGEMM},
+not a fault in this package: it reproduces in plain R with no packages
+loaded, via \verb{Rprof(tempfile()); for (i in 1:2e5) crossprod(A, B)} for
+matrices \code{A}, \code{B} of a few hundred rows or more. MPL mode is the only part of
+lpplsF that reaches it, because the modified profile likelihood is the only
+place that multiplies two matrices; every other product here is a
+one-argument \code{\link[=crossprod]{crossprod()}}, a matrix-vector product or a decomposition, none
+of which are affected. Fitting itself is unaffected -- the crash requires a
+profiler to be running.
+
+To profile MPL mode, take R's own matrix products instead of the BLAS for the
+duration of the profiling session:
+
+\if{html}{\out{<div class="sourceCode r">}}\preformatted{old <- options(matprod = "internal")
+Rprof("prof.out")
+fit <- fit_lppls(log_price, mode = "MPL", ...)
+Rprof(NULL)
+options(old)
+summaryRprof("prof.out")
+}\if{html}{\out{</div>}}
+
+\code{matprod = "internal"} costs only a few percent on a whole MPL fit, since the
+fit does relatively few matrix-matrix products. It does sum in a different
+order, so estimates move in the last couple of digits; that is immaterial for
+a profiling run but is a reason not to set it globally.
+}
+
 \examples{
 \dontrun{
 # Generate synthetic bubble data

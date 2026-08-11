@@ -54,6 +54,12 @@
 #'       [lr_trend_test()] can re-roll bootstrap replicates with the same settings.}
 #'   }
 #'
+#' @section Profiling on macOS:
+#' `mode` defaults to `"MPL"`, so profiling a rolling calibration on macOS hits
+#' the R-profiler/Accelerate crash described under "Profiling `mode = \"MPL\"` on
+#' macOS" in [fit_lppls()]. The same `options(matprod = "internal")` workaround
+#' applies. Unprofiled runs are unaffected.
+#'
 #' @seealso [fit_lppls()], [lppls_lagrange()], [rolling_tc_plot()],
 #'   [rolling_param_plot()]
 #'
