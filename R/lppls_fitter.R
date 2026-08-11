@@ -1,3 +1,16 @@
+#' Cap on the reconstructed BFGS trace
+#'
+#' The trace plots rebuild the optimiser's path by re-running L-BFGS-B with an
+#' increasing iteration limit until the iterate stops changing (see the trace
+#' block of [fit_lppls()]). This bounds that search, so a path that never
+#' settles cannot loop indefinitely. Well above anything observed: the SPX and
+#' e008/e009 calibrations settle within 1-7 iterations.
+#'
+#' @keywords internal
+#' @noRd
+.lppls_max_trace_steps <- 200L
+
+
 #' Fit LPPLS Model to Financial Time Series
 #'
 #' Fits the Log-Periodic Power Law Singularity (LPPLS) model to log-price
@@ -152,7 +165,7 @@
 #'               objective function `F2` for each value of `tc`. Columns are:
 #'               `c(ID, value, tc, m, omega, A, B, C1, C2, damp)`. Sorted by
 #'               objective function value (best at top). For each value of `tc`
-#'               the best fit is picked from `fit2_tmp`.\cr
+#'               the best fit is picked from that `tc`'s table in `fit[[4]]`.\cr
 #'               If no fits passed the filter: Only unfiltered fits returned.
 #'             }
 #'             \item{`fit[[3]]`}{
@@ -555,44 +568,54 @@ fit_lppls <- function(
   if (mode == "F2" || mode == "MPL") { ## "F2"-mode output needed for "MPL"-mode
     if (fb) message("Mode: F2/MPL - Two-stage optimization")
 
-    ## List of fits wrt m and omega for a single fixed value of tc.
-    ## This is the combination of m and omega that minimizes SSE2.
-    ## For each value of tc, fit2 contains a list of all fits with random
-    ## initial values.
-    ## For each value of tc_k, fit2 stores the contents of fit2_tmp in
-    ## iteration k.
-    fit2 <- list()
+    ## Accumulators for the tc loop.
+    ##
+    ## These are plain preallocated vectors, assembled into the documented
+    ## tibbles once the loop has finished. The loop runs fh x num_searches
+    ## times and everything in it other than optim() used to be tibble row
+    ## assignment, two dplyr::arrange() calls and a dplyr::filter() per tc,
+    ## plus an rbind() that regrew the filtered table on every iteration --
+    ## quadratic in fh, and ~1.2 ms per tc in total.
+    ##
+    ## Column order is the documented one: ID, value, tc, m, omega, A, B, C1,
+    ## C2, D. ID is an integer identifier giving the pre-sorting order.
 
-    fit2_filtered <- list()
+    ## Best fit for each tc, one row per candidate (index k).
+    b_ID <- integer(fh)
+    b_value <- numeric(fh)
+    b_tc <- numeric(fh)
+    b_m <- numeric(fh)
+    b_omega <- numeric(fh)
+    b_A <- numeric(fh)
+    b_B <- numeric(fh)
+    b_C1 <- numeric(fh)
+    b_C2 <- numeric(fh)
+    b_D <- numeric(fh)
 
-    ## Initialize List with best fit optimized wrt m and omega for each value of
-    ## tc. I.e. pick the best from fit2 for each tc.
-    fit2_best_for_each_tc <- tibble::tibble(
-      ID = integer(fh),
-      value = numeric(fh),
-      tc = numeric(fh),
-      m = numeric(fh),
-      omega = numeric(fh),
-      A = numeric(fh),
-      B = numeric(fh),
-      C1 = numeric(fh),
-      C2 = numeric(fh),
-      D = numeric(fh)
-    )
+    ## The same, restricted to fits with B < upper[3]. At most one row per tc,
+    ## so fh entries is always enough; n_keep records how many were used.
+    f_ID <- integer(fh)
+    f_value <- numeric(fh)
+    f_tc <- numeric(fh)
+    f_m <- numeric(fh)
+    f_omega <- numeric(fh)
+    f_A <- numeric(fh)
+    f_B <- numeric(fh)
+    f_C1 <- numeric(fh)
+    f_C2 <- numeric(fh)
+    f_D <- numeric(fh)
+    n_keep <- 0L
 
-    ## Initialize fit2_best_for_each_tc filtered for B < 0
-    fit2_best_for_each_tc_filtered <- tibble::tibble(
-      ID = integer(0),
-      value = numeric(0),
-      tc = numeric(0),
-      m = numeric(0),
-      omega = numeric(0),
-      A = numeric(0),
-      B = numeric(0),
-      C1 = numeric(0),
-      C2 = numeric(0),
-      D = numeric(0)
-    )
+    ## Scratch for the random searches at a single tc, overwritten each k.
+    s_ID <- seq_len(num_searches)
+    s_value <- numeric(num_searches)
+    s_m <- numeric(num_searches)
+    s_omega <- numeric(num_searches)
+    s_A <- numeric(num_searches)
+    s_B <- numeric(num_searches)
+    s_C1 <- numeric(num_searches)
+    s_C2 <- numeric(num_searches)
+    s_D <- numeric(num_searches)
 
     fit[[4]] <- list()
 
@@ -603,23 +626,6 @@ fit_lppls <- function(
       if (fb && k %% 5 == 1) {
         message(sprintf("Processing tc = %d (%d/%d)", tc_k, k, fh))
       }
-
-      ## Initialize results for this tc value
-      fit2_tmp <- tibble::tibble(
-        ID = integer(num_searches),
-        value = numeric(num_searches),
-        tc = numeric(num_searches),
-        m = numeric(num_searches),
-        omega = numeric(num_searches),
-        A = numeric(num_searches),
-        B = numeric(num_searches),
-        C1 = numeric(num_searches),
-        C2 = numeric(num_searches),
-        D = numeric(num_searches)
-      )
-
-      ## Use for trace plot
-      opt2_counts <- list()
 
       for (i in seq_len(num_searches)) {
         ## Set seed for reproducibility (matches trace plot)
@@ -647,8 +653,6 @@ fit_lppls <- function(
           method = "L-BFGS-B",
           control = list(factr = factr)
         )
-
-        if (any(tp != 0)) opt2_counts[[i]] <- opt_result$counts[["function"]]
 
         ## Calculate linear coefficients
         beta_vals <- beta_calculator(
@@ -678,43 +682,85 @@ fit_lppls <- function(
             list(tc_num = k, rand_iter_num = i)
         }
 
-        ## Add list of fitted coefficients to list of fits
-        fit2_tmp[i, ] <- list(
-          ID = i,
-          value = opt_result$value,
-          tc = tc_k,
-          m = opt_result$par[1],
-          omega = opt_result$par[2],
-          A = beta_vals["A"],
-          B = beta_vals["B"],
-          C1 = beta_vals["C1"],
-          C2 = beta_vals["C2"],
-          D = damp
-        )
+        ## Record this search's fitted coefficients
+        s_value[i] <- opt_result$value
+        s_m[i] <- opt_result$par[1]
+        s_omega[i] <- opt_result$par[2]
+        s_A[i] <- beta_vals["A"]
+        s_B[i] <- beta_vals["B"]
+        s_C1[i] <- beta_vals["C1"]
+        s_C2[i] <- beta_vals["C2"]
+        s_D[i] <- damp
       }
 
-      ## Store all fits for this tc
-      fit[[4]][[k]] <- fit2_tmp
+      ## Store all fits for this tc, in search order (ID is the pre-sorting
+      ## index, so this table is deliberately left unsorted).
+      fit[[4]][[k]] <- tibble::tibble(
+        ID = s_ID,
+        value = s_value,
+        tc = rep(as.numeric(tc_k), num_searches),
+        m = s_m,
+        omega = s_omega,
+        A = s_A,
+        B = s_B,
+        C1 = s_C1,
+        C2 = s_C2,
+        D = s_D
+      )
 
-      ## Sort list by value of objective function F2.
-      ## Keep all fits for tc_k in a list.
-      ## Filter out results where B >= 0.
-      ## Then sort by SSE value (smallest at top).
-      fit2[[k]] <- dplyr::arrange(fit2_tmp, value)
-      fit2_filtered[[k]] <- dplyr::filter(fit2_tmp, B < upper[3])
-      fit2_filtered[[k]] <- dplyr::arrange(fit2_filtered[[k]], value)
+      ## Keep the best fit for this tc, i.e. the smallest objective value.
+      ## which.min() returns the FIRST minimum, which is what sorting by
+      ## `value` and taking the top row did (arrange() is a stable sort); it
+      ## also skips NaN, as arrange() sorted them last. If every value is NaN
+      ## neither leaves a candidate, and sorting would have left row 1 in
+      ## place, so fall back to it.
+      j <- which.min(s_value)
+      if (length(j) == 0L) j <- 1L
 
-      ## Keep best fit for this tc
-      fit2_best_for_each_tc[k, ] <- fit2[[k]][1, ]
+      b_ID[k] <- s_ID[j]
+      b_value[k] <- s_value[j]
+      b_tc[k] <- tc_k
+      b_m[k] <- s_m[j]
+      b_omega[k] <- s_omega[j]
+      b_A[k] <- s_A[j]
+      b_B[k] <- s_B[j]
+      b_C1[k] <- s_C1[j]
+      b_C2[k] <- s_C2[j]
+      b_D[k] <- s_D[j]
 
-      ## Add to filtered list if any fits passed filter
-      if (nrow(fit2_filtered[[k]]) > 0) {
-        fit2_best_for_each_tc_filtered <- rbind(
-          fit2_best_for_each_tc_filtered,
-          fit2_filtered[[k]][1, ]
-        )
+      ## The same, among fits that pass the B < upper[3] filter. which() drops
+      ## NA comparisons exactly as dplyr::filter() dropped NA rows.
+      keep <- which(s_B < upper[3])
+      if (length(keep) > 0L) {
+        jf <- which.min(s_value[keep])
+        jf <- if (length(jf) == 0L) keep[1L] else keep[jf]
+
+        n_keep <- n_keep + 1L
+        f_ID[n_keep] <- s_ID[jf]
+        f_value[n_keep] <- s_value[jf]
+        f_tc[n_keep] <- tc_k
+        f_m[n_keep] <- s_m[jf]
+        f_omega[n_keep] <- s_omega[jf]
+        f_A[n_keep] <- s_A[jf]
+        f_B[n_keep] <- s_B[jf]
+        f_C1[n_keep] <- s_C1[jf]
+        f_C2[n_keep] <- s_C2[jf]
+        f_D[n_keep] <- s_D[jf]
       }
     }
+
+    ## Assemble the documented tables from the accumulators
+    fit2_best_for_each_tc <- tibble::tibble(
+      ID = b_ID, value = b_value, tc = b_tc, m = b_m, omega = b_omega,
+      A = b_A, B = b_B, C1 = b_C1, C2 = b_C2, D = b_D
+    )
+
+    kept <- seq_len(n_keep)
+    fit2_best_for_each_tc_filtered <- tibble::tibble(
+      ID = f_ID[kept], value = f_value[kept], tc = f_tc[kept],
+      m = f_m[kept], omega = f_omega[kept], A = f_A[kept], B = f_B[kept],
+      C1 = f_C1[kept], C2 = f_C2[kept], D = f_D[kept]
+    )
 
     ## Sort results across all tc values
     fit2_best_for_each_tc <- dplyr::arrange(fit2_best_for_each_tc, value)
@@ -875,7 +921,6 @@ fit_lppls <- function(
       ## Start from the same initial point that search used (cf. the search loop):
       ## (m_init, o_init) for the first search, otherwise its random start. This
       ## makes the first plotted segment the real first BFGS step.
-      s <- seq_len(opt2_counts[[fit2_best$ID]])
       set.seed(fit2_best$ID)
       init_replay <- if (fit2_best$ID == 1L) {
         c(m_init, o_init)
@@ -884,21 +929,47 @@ fit_lppls <- function(
           stats::runif(1, lower[2], upper[2]))
       }
 
-      opt_trace <- sapply(s, function(iter) {
-        opt_i <- stats::optim(
+      ## The path is reconstructed rather than recorded: L-BFGS-B is re-run from
+      ## init_replay with maxit = 1, 2, 3, ..., so each run contributes the point
+      ## the optimiser had reached after that many iterations.
+      ##
+      ## How many iterations that is cannot be read off the search: optim()
+      ## reports counts of calls to fn and gr, not iterations, and those exceed
+      ## the number of steps by a factor of roughly 2-12 here. So the length is
+      ## discovered instead -- extend maxit until the iterate stops changing.
+      ## The run that shows no change ends the loop and is not plotted, so the
+      ## trace holds every distinct point and no duplicates.
+      trace_step <- function(iter) {
+        stats::optim(
           par     = init_replay,
           fn      = SSE2, tc = tc_val, log_p = log_p, t = t,
           lower   = c(lower[1], lower[2]), upper = c(upper[1], upper[2]),
           method  = "L-BFGS-B", control = list(maxit = iter)
         )$par
+      }
+
+      path <- vector("list", .lppls_max_trace_steps)
+      n_step <- 0L
+      prev <- NULL
+      for (iter in seq_len(.lppls_max_trace_steps)) {
+        p_i <- trace_step(iter)
+        if (!is.null(prev) && identical(p_i, prev)) break
+        n_step <- n_step + 1L
+        path[[n_step]] <- p_i
+        prev <- p_i
+      }
+      if (n_step == .lppls_max_trace_steps) {
+        warning("BFGS trace still moving after ", .lppls_max_trace_steps,
+                " iterations; the plotted path is truncated.")
+      }
+
+      opt_trace <- vapply(path[seq_len(n_step)], function(p_i) {
         if (need_B) {
-          opt_i <- c(
-            opt_i,
-            unname(beta_calculator(log_p, t, tc_val, opt_i[1], opt_i[2])["B"])
-          )
+          c(p_i, unname(beta_calculator(log_p, t, tc_val, p_i[1], p_i[2])["B"]))
+        } else {
+          p_i
         }
-        opt_i
-      })
+      }, numeric(if (need_B) 3L else 2L))
 
       ## Prepend the actual starting point (the red start dot)
       if (need_B) {

@@ -200,7 +200,7 @@ If at least one fit passed the filter: Tibble of best fits for
 objective function \code{F2} for each value of \code{tc}. Columns are:
 \code{c(ID, value, tc, m, omega, A, B, C1, C2, damp)}. Sorted by
 objective function value (best at top). For each value of \code{tc}
-the best fit is picked from \code{fit2_tmp}.\cr
+the best fit is picked from that \code{tc}'s table in \code{fit[[4]]}.\cr
 If no fits passed the filter: Only unfiltered fits returned.
 }
 \item{\code{fit[[3]]}}{
