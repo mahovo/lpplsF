@@ -274,6 +274,63 @@ create_beta_calculator <- function(method = c("crossprod", "qr", "chol",
 }
 
 
+#' Create SSE Calculator
+#'
+#' Creates the objective the nonlinear search minimises: for fixed
+#' \eqn{(t_c, m, \omega)}{(tc, m, omega)}, the residual sum of squares after the
+#' linear parameters have been concentrated out.
+#'
+#' @details
+#' The naive form calls the beta calculator and then [eval_lppls()], which walks
+#' the series twice and builds the same
+#' \eqn{\tau^m}{tau^m}/\eqn{\cos}{cos}/\eqn{\sin}{sin} basis in both. For
+#' `"crossprod"` this returns a fused version instead: the design matrix is
+#' formed once, and the fitted values are taken as \eqn{X\hat\beta}{X beta_hat}
+#' rather than rebuilt from the closed-form model. That is the same arithmetic
+#' in a different association order, so it is *not* bit-identical to the
+#' two-pass form -- see the `beta_method` documentation of [fit_lppls()].
+#'
+#' The other methods keep the two-pass form, so their results are unchanged.
+#'
+#' @param method Solver, as in [create_beta_calculator()].
+#' @param beta_calculator Optional pre-built calculator for `method`, reused so
+#'   the caller does not build two.
+#'
+#' @return A function of `(log_p, t, tc, m, omega)` returning the scalar SSE.
+#'
+#' @keywords internal
+#' @noRd
+create_sse_calculator <- function(method = c("crossprod", "qr", "chol",
+                                             "symengine"),
+                                  beta_calculator = NULL) {
+  method <- match.arg(method)
+
+  if (method == "crossprod") {
+    ## One pass: build the basis, solve the normal equations, and form the
+    ## residuals from the design matrix that is already in hand.
+    return(function(log_p, t, tc, m, omega) {
+      tau  <- tc - t
+      taum <- tau^m
+      lt   <- omega * log(tau)
+      X    <- cbind(1, taum, taum * cos(lt), taum * sin(lt))
+      b    <- base::solve(crossprod(X), crossprod(X, log_p))
+      r    <- log_p - X %*% b
+      sum(r * r, na.rm = TRUE)
+    })
+  }
+
+  ## Every other method keeps the original two-pass evaluation, so that
+  ## "symengine" in particular reproduces the thesis calibration exactly.
+  bc <- if (is.null(beta_calculator)) create_beta_calculator(method) else beta_calculator
+  function(log_p, t, tc, m, omega) {
+    beta <- bc(log_p, t, tc, m, omega)
+    fitted <- eval_lppls(t, beta["A"], beta["B"], beta["C1"], beta["C2"],
+                         tc, m, omega, mode = 0)
+    sum((log_p - fitted)^2, na.rm = TRUE)
+  }
+}
+
+
 #' Validate LPPLS Parameters
 #'
 #' Checks if estimated parameters fall within acceptable ranges.

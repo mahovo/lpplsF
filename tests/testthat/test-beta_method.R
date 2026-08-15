@@ -186,3 +186,71 @@ test_that("the derivative entries the hand-written H omits are genuinely zero", 
                  info = paste("d2 /", pair[1], pair[2]))
   }
 })
+
+
+# ---------------------------------------------------------------------------
+# The objective. create_sse_calculator() fuses the "crossprod" path -- the
+# design matrix is built once and the residuals come from it -- while every
+# other solver keeps the original two-pass evaluation.
+# ---------------------------------------------------------------------------
+
+sse_two_pass <- function(method) {
+  bc <- create_beta_calculator(method)
+  function(log_p, t, tc, m, omega) {
+    b <- bc(log_p, t, tc, m, omega)
+    sum((log_p - eval_lppls(t, b["A"], b["B"], b["C1"], b["C2"],
+                            tc, m, omega, mode = 0))^2, na.rm = TRUE)
+  }
+}
+
+test_that("fusing leaves every solver but crossprod bit-identical", {
+  d <- sample_case()
+  for (mth in c("qr", "chol", "symengine")) {
+    fused <- lpplsF:::create_sse_calculator(mth)
+    naive <- sse_two_pass(mth)
+    expect_identical(fused(d$log_p, d$t, d$tc, d$m, d$omega),
+                     naive(d$log_p, d$t, d$tc, d$m, d$omega),
+                     info = mth)
+  }
+})
+
+test_that("the fused crossprod objective matches the two-pass form to machine precision", {
+  d <- sample_case()
+  fused <- lpplsF:::create_sse_calculator("crossprod")
+  naive <- sse_two_pass("crossprod")
+  a <- fused(d$log_p, d$t, d$tc, d$m, d$omega)
+  b <- naive(d$log_p, d$t, d$tc, d$m, d$omega)
+  ## Same quantity, summed in a different order: equal to within rounding,
+  ## but deliberately not asserted bit-identical.
+  expect_equal(a, b, tolerance = 1e-12)
+})
+
+test_that("all four objectives agree across the admissible box", {
+  d <- sample_case()
+  grid <- expand.grid(m = c(0.1, 0.35, 0.6, 0.9), omega = c(6, 9.5, 13))
+  ref <- lpplsF:::create_sse_calculator("crossprod")
+  for (mth in c("qr", "chol", "symengine")) {
+    f <- lpplsF:::create_sse_calculator(mth)
+    for (i in seq_len(nrow(grid))) {
+      expect_equal(f(d$log_p, d$t, d$tc, grid$m[i], grid$omega[i]),
+                   ref(d$log_p, d$t, d$tc, grid$m[i], grid$omega[i]),
+                   tolerance = 1e-8,
+                   info = sprintf("%s at m=%g omega=%g", mth, grid$m[i], grid$omega[i]))
+    }
+  }
+})
+
+test_that("the objective equals the residual sum of squares at the returned beta", {
+  d <- sample_case()
+  for (mth in c("crossprod", "qr", "chol", "symengine")) {
+    b <- create_beta_calculator(mth)(d$log_p, d$t, d$tc, d$m, d$omega)
+    fitted <- eval_lppls(d$t, b["A"], b["B"], b["C1"], b["C2"],
+                         d$tc, d$m, d$omega, mode = 0)
+    expect_equal(lpplsF:::create_sse_calculator(mth)(d$log_p, d$t, d$tc, d$m, d$omega),
+                 sum((d$log_p - fitted)^2), tolerance = 1e-10, info = mth)
+  }
+})
+
+test_that("create_sse_calculator validates its method", {
+  expect_error(lpplsF:::create_sse_calculator("nope"), "should be one of")
+})

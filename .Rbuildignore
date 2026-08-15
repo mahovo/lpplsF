@@ -1,0 +1,12 @@
+^misc$
+^\.Rprofile$
+^\.Rproj\.user$
+^.*\.Rproj$
+^\.claude$
+^\.markdown-preview\.html$
+^CLAUDE\.md$
+^lpplsF\.Rcheck$
+^LICENSE\.md$
+^\.github$
+^.git$
+^.gitignore$

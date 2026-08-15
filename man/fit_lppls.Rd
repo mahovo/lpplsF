@@ -139,24 +139,55 @@ reaching the same optimum. See \code{misc/bench_beta.Rmd} for the measurements.}
 \code{FALSE}).}
 
 \item{beta_method}{Character, how to solve for the linear parameters
-\eqn{A, B, C_1, C_2} given \eqn{(t_c, m, \omega)}. All choices compute the
-same least-squares solution and differ only in speed and conditioning; the
-solver is evaluated once per objective evaluation, so it dominates the cost
-of a calibration.
+\eqn{A, B, C_1, C_2} given \eqn{(t_c, m, \omega)}.
+
+At fixed \eqn{(t_c, m, \omega)} the model is linear in those four
+coefficients, so with \eqn{\tau = t_c - t}{tau = tc - t} it is
+\eqn{y = X\beta}{y = X beta} for the \eqn{n \times 4} design matrix
+\deqn{X = [\,1,\; \tau^{m},\; \tau^{m}\cos(\omega \log \tau),\;
+    \tau^{m}\sin(\omega \log \tau)\,],\qquad
+    \beta = (A, B, C_1, C_2)'}{X = [1, tau^m, tau^m cos(omega log tau),
+    tau^m sin(omega log tau)], beta = (A, B, C1, C2)'}
+whose columns are linearly independent for \eqn{m \ne 0}{m != 0},
+\eqn{\omega \ne 0}{omega != 0}. Every method returns the same
+\eqn{\hat\beta = \arg\min_\beta \|y - X\beta\|^2}{beta_hat = argmin ||y -
+  X beta||^2} and differs only in how it is computed. The solver runs once per
+objective evaluation, so it dominates the cost of a calibration.
 \describe{
-\item{\code{"crossprod"}}{(default) Normal equations via \code{\link[=crossprod]{crossprod()}} and
-\code{\link[=solve]{solve()}}. Fastest, and exact to well within anything interpretable
-over the admissible \eqn{0.1 \le m \le 0.9}{0.1 <= m <= 0.9}.}
-\item{\code{"qr"}}{Householder QR via \code{\link[=.lm.fit]{.lm.fit()}}. Never forms \eqn{X'X}, so it
-does not square the condition number. About 30\% slower and markedly
-more accurate; prefer it if \code{lower[1]} is widened toward
-\eqn{m \to 0}{m -> 0}.}
-\item{\code{"chol"}}{Cholesky of the normal equations.}
-\item{\code{"symengine"}}{The thesis implementation: a symbolic 4x4 solve
-compiled to one closure per coefficient. Retained so the thesis
-calibration can be reproduced and inspected directly -- it is roughly
-ten times slower than the default and the least accurate of the four.}
+\item{\code{"crossprod"}}{(default) Normal equations,
+\eqn{(X'X)\hat\beta = X'y}{(X'X) beta_hat = X'y}, via \code{\link[=crossprod]{crossprod()}} and
+\code{\link[=solve]{solve()}}. Fastest: \eqn{X} is built once and the residuals are formed
+as \eqn{y - X\hat\beta}{y - X beta_hat}, so the series is walked a
+single time. Exact to well within anything interpretable over the
+admissible \eqn{0.1 \le m \le 0.9}{0.1 <= m <= 0.9}.}
+\item{\code{"qr"}}{Householder QR of \eqn{X} via \code{\link[=.lm.fit]{.lm.fit()}}. Never forms
+\eqn{X'X}, and since
+\eqn{\kappa_2(X'X) = \kappa_2(X)^2}{kappa(X'X) = kappa(X)^2} it does not
+square the condition number. About 30\% slower and markedly more
+accurate; prefer it if \code{lower[1]} is widened toward
+\eqn{m \to 0}{m -> 0}, where \eqn{\tau^{m} \to 1}{tau^m -> 1} rotates
+into the intercept column and \eqn{X} approaches rank deficiency.}
+\item{\code{"chol"}}{Cholesky factorisation of \eqn{X'X}, which is symmetric
+positive definite whenever \eqn{X} has full column rank.}
+\item{\code{"symengine"}}{The thesis implementation: the \eqn{4 \times 4}
+system is solved symbolically once and compiled to one closure per
+coefficient, fed by hand-computed entries of \eqn{X'X} and \eqn{X'y}.
+Retained so the thesis calibration can be reproduced and inspected
+directly -- it is roughly ten times slower than the default and the
+least accurate of the four.}
 }
+
+The methods are not bit-identical to one another, and \code{"crossprod"} is not
+bit-identical to a two-pass evaluation of the same normal equations: forming
+the fitted values as \eqn{X\hat\beta}{X beta_hat} sums the four terms in a
+different order than re-evaluating
+\eqn{A + \tau^{m}(B + C_1\cos(\omega\log\tau) +
+    C_2\sin(\omega\log\tau))}{A + tau^m (B + C1 cos(omega log tau) +
+    C2 sin(omega log tau))} from the closed form. The differences are at the
+level of the last few significant digits and do not move any reported
+quantity, but they mean a calibration is bit-reproducible only against the
+same \code{beta_method}.
+
 See \code{misc/bench_beta.Rmd} for the timings and precision measurements behind
 these characterisations.}
 }

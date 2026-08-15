@@ -105,24 +105,55 @@
 #' @param fb Logical, whether to print feedback during execution (default
 #'   `FALSE`).
 #' @param beta_method Character, how to solve for the linear parameters
-#'   \eqn{A, B, C_1, C_2} given \eqn{(t_c, m, \omega)}. All choices compute the
-#'   same least-squares solution and differ only in speed and conditioning; the
-#'   solver is evaluated once per objective evaluation, so it dominates the cost
-#'   of a calibration.
+#'   \eqn{A, B, C_1, C_2} given \eqn{(t_c, m, \omega)}.
+#'
+#'   At fixed \eqn{(t_c, m, \omega)} the model is linear in those four
+#'   coefficients, so with \eqn{\tau = t_c - t}{tau = tc - t} it is
+#'   \eqn{y = X\beta}{y = X beta} for the \eqn{n \times 4} design matrix
+#'   \deqn{X = [\,1,\; \tau^{m},\; \tau^{m}\cos(\omega \log \tau),\;
+#'     \tau^{m}\sin(\omega \log \tau)\,],\qquad
+#'     \beta = (A, B, C_1, C_2)'}{X = [1, tau^m, tau^m cos(omega log tau),
+#'     tau^m sin(omega log tau)], beta = (A, B, C1, C2)'}
+#'   whose columns are linearly independent for \eqn{m \ne 0}{m != 0},
+#'   \eqn{\omega \ne 0}{omega != 0}. Every method returns the same
+#'   \eqn{\hat\beta = \arg\min_\beta \|y - X\beta\|^2}{beta_hat = argmin ||y -
+#'   X beta||^2} and differs only in how it is computed. The solver runs once per
+#'   objective evaluation, so it dominates the cost of a calibration.
 #'   \describe{
-#'     \item{`"crossprod"`}{(default) Normal equations via [crossprod()] and
-#'       [solve()]. Fastest, and exact to well within anything interpretable
-#'       over the admissible \eqn{0.1 \le m \le 0.9}{0.1 <= m <= 0.9}.}
-#'     \item{`"qr"`}{Householder QR via [.lm.fit()]. Never forms \eqn{X'X}, so it
-#'       does not square the condition number. About 30% slower and markedly
-#'       more accurate; prefer it if `lower[1]` is widened toward
-#'       \eqn{m \to 0}{m -> 0}.}
-#'     \item{`"chol"`}{Cholesky of the normal equations.}
-#'     \item{`"symengine"`}{The thesis implementation: a symbolic 4x4 solve
-#'       compiled to one closure per coefficient. Retained so the thesis
-#'       calibration can be reproduced and inspected directly -- it is roughly
-#'       ten times slower than the default and the least accurate of the four.}
+#'     \item{`"crossprod"`}{(default) Normal equations,
+#'       \eqn{(X'X)\hat\beta = X'y}{(X'X) beta_hat = X'y}, via [crossprod()] and
+#'       [solve()]. Fastest: \eqn{X} is built once and the residuals are formed
+#'       as \eqn{y - X\hat\beta}{y - X beta_hat}, so the series is walked a
+#'       single time. Exact to well within anything interpretable over the
+#'       admissible \eqn{0.1 \le m \le 0.9}{0.1 <= m <= 0.9}.}
+#'     \item{`"qr"`}{Householder QR of \eqn{X} via [.lm.fit()]. Never forms
+#'       \eqn{X'X}, and since
+#'       \eqn{\kappa_2(X'X) = \kappa_2(X)^2}{kappa(X'X) = kappa(X)^2} it does not
+#'       square the condition number. About 30% slower and markedly more
+#'       accurate; prefer it if `lower[1]` is widened toward
+#'       \eqn{m \to 0}{m -> 0}, where \eqn{\tau^{m} \to 1}{tau^m -> 1} rotates
+#'       into the intercept column and \eqn{X} approaches rank deficiency.}
+#'     \item{`"chol"`}{Cholesky factorisation of \eqn{X'X}, which is symmetric
+#'       positive definite whenever \eqn{X} has full column rank.}
+#'     \item{`"symengine"`}{The thesis implementation: the \eqn{4 \times 4}
+#'       system is solved symbolically once and compiled to one closure per
+#'       coefficient, fed by hand-computed entries of \eqn{X'X} and \eqn{X'y}.
+#'       Retained so the thesis calibration can be reproduced and inspected
+#'       directly -- it is roughly ten times slower than the default and the
+#'       least accurate of the four.}
 #'   }
+#'
+#'   The methods are not bit-identical to one another, and `"crossprod"` is not
+#'   bit-identical to a two-pass evaluation of the same normal equations: forming
+#'   the fitted values as \eqn{X\hat\beta}{X beta_hat} sums the four terms in a
+#'   different order than re-evaluating
+#'   \eqn{A + \tau^{m}(B + C_1\cos(\omega\log\tau) +
+#'     C_2\sin(\omega\log\tau))}{A + tau^m (B + C1 cos(omega log tau) +
+#'     C2 sin(omega log tau))} from the closed form. The differences are at the
+#'   level of the last few significant digits and do not move any reported
+#'   quantity, but they mean a calibration is bit-reproducible only against the
+#'   same `beta_method`.
+#'
 #'   See `misc/bench_beta.Rmd` for the timings and precision measurements behind
 #'   these characterisations.
 #'
@@ -388,75 +419,34 @@ fit_lppls <- function(
   t <- time_id[1:n]
   log_p <- log_price[1:n]
 
-  ## Create the beta calculator once, with the requested solver.
+  ## Create the beta calculator once, with the requested solver, and the
+  ## matching objective. For "crossprod" the objective is fused -- one pass over
+  ## the series instead of two -- which is why it is built here rather than
+  ## spelled out inline below; the other solvers get the two-pass form.
   beta_calculator <- create_beta_calculator(beta_method)
+  sse_calculator <- create_sse_calculator(beta_method, beta_calculator)
 
   ## Internal Sum of Squared Errors functions
   ##
   ## SSE with all nonlinear parameters as vector
   ## par vector is {tc, m, omega}, used as initial parameter values in optim().
   SSE1 <- function(par, log_p, t) {
-    tc <- par[1]
-    m <- par[2]
-    omega <- par[3]
-
     ## Ensure tc > max(t)
-    if (tc <= max(t)) return(Inf)
-
-    beta <- beta_calculator(log_p, t, tc, m, omega)
-    fitted <- eval_lppls(
-      t,
-      beta["A"],
-      beta["B"],
-      beta["C1"],
-      beta["C2"],
-      tc,
-      m,
-      omega,
-      mode = 0
-    )
-    sum((log_p - fitted)^2, na.rm = TRUE)
+    if (par[1] <= max(t)) return(Inf)
+    sse_calculator(log_p, t, par[1], par[2], par[3])
   }
 
   ## SSE with fixed tc
   ## par vector is {m, omega}, used as initial parameter values in optim().
   SSE2 <- function(par, tc, log_p, t) {
-    m <- par[1]
-    omega <- par[2]
-
-    beta <- beta_calculator(log_p, t, tc, m, omega)
-    fitted <- eval_lppls(
-      t,
-      beta["A"],
-      beta["B"],
-      beta["C1"],
-      beta["C2"],
-      tc,
-      m,
-      omega,
-      mode = 0
-    )
-    sum((log_p - fitted)^2, na.rm = TRUE)
+    sse_calculator(log_p, t, tc, par[1], par[2])
   }
 
   ## SSE with fixed m and omega
   ## par is tc, used as initial parameter value in optim().
   SSE3 <- function(tc, m, omega, log_p, t) {
     if (tc <= max(t)) return(Inf)
-
-    beta <- beta_calculator(log_p, t, tc, m, omega)
-    fitted <- eval_lppls(
-      t,
-      beta["A"],
-      beta["B"],
-      beta["C1"],
-      beta["C2"],
-      tc,
-      m,
-      omega,
-      mode = 0
-    )
-    sum((log_p - fitted)^2, na.rm = TRUE)
+    sse_calculator(log_p, t, tc, m, omega)
   }
 
   ## Initialize outputs
@@ -880,7 +870,7 @@ fit_lppls <- function(
       t = t,
       lower = lower,
       upper = upper,
-      beta_calculator = beta_calculator,
+      sse_calculator = sse_calculator,
       fb = fb
     )
     contour_data <- contour_result

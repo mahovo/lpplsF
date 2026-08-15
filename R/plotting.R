@@ -449,7 +449,8 @@ overlay_legend_theme <- function(
 #'
 #' @keywords internal
 #' @noRd
-create_contour_data <- function(fit, log_p, t, lower, upper, beta_calculator, fb = FALSE) {
+create_contour_data <- function(fit, log_p, t, lower, upper, sse_calculator,
+                                fb = FALSE) {
   if (fb) message("Generating contour plot data...")
 
   tc_val <- fit$tc
@@ -457,20 +458,10 @@ create_contour_data <- function(fit, log_p, t, lower, upper, beta_calculator, fb
   x_contour <- seq(lower[1], upper[1], length.out = 101)  ## m
   y_contour <- seq(lower[2], upper[2], length.out = 101)  ## omega
 
+  ## The same objective the search minimised, so the surface and the reported
+  ## optimum are computed the same way.
   sse_func <- function(m_val, omega_val) {
-    beta <- beta_calculator(log_p, t, tc_val, m_val, omega_val)
-    fitted <- eval_lppls(
-      t,
-      beta["A"],
-      beta["B"],
-      beta["C1"],
-      beta["C2"],
-      tc_val,
-      m_val,
-      omega_val,
-      mode = 0
-    )
-    sum((log_p - fitted)^2, na.rm = TRUE)
+    sse_calculator(log_p, t, tc_val, m_val, omega_val)
   }
 
   z_contour <- outer(x_contour, y_contour, Vectorize(sse_func))

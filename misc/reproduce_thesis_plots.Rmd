@@ -315,12 +315,15 @@ est_row <- function(fit) {
 ## The calibration shared by M1 and M2 (matches thesis e008 / e009). fp/pp/tp
 ## ask fit_lppls to also attach the fit plot, the per-tc parameter plot, and the
 ## three BFGS trace plots to the returned object.
+##
+## beta_method is pinned rather than left to the default, so this document keeps
+## reproducing the same numbers if the default ever changes.
 fit_call <- function(log_price) {
   fit_lppls(
     log_price = log_price, fh = 300, hold_out = 200,
     lower = c(0.1, 6, -0.03, 0.8), upper = c(0.9, 13, -1e-14, 1e6),
     tc_init = 1950, m_init = 0.2, o_init = 12, num_searches = 1,
-    mode = "MPL", mpl_cutoff = c(0.05, 0.1, 0.5),
+    mode = "MPL", mpl_cutoff = c(0.05, 0.1, 0.5), beta_method = "crossprod",
     fp = TRUE, pp = TRUE, tp = c(1, 1, 1), tp_id = 1
   )
 }
@@ -329,6 +332,26 @@ fit_call <- function(log_price) {
 The Gaussian series is regenerated from `set.seed(3630)`; the GARCH series is
 loaded from `e009_garch_series.rds` (the exact thesis path — `rugarch`'s output
 is version-sensitive and cannot be regenerated bit-for-bit).
+
+> **Why these figures are not bit-identical to the thesis's.** At fixed
+> $(t_c, m, \omega)$ the model is linear in $(A, B, C_1, C_2)$, and
+> `beta_method` chooses how that linear system is solved. All four choices
+> return the same least-squares solution; they differ in speed and in the last
+> few significant digits. The thesis was computed with `"symengine"`, a symbolic
+> $4 \times 4$ solve — reproducible and checkable against the thesis appendix,
+> but roughly ten times slower than the default and the least accurate of the
+> four. This document pins **`"crossprod"`** instead, the normal equations with
+> the objective evaluated in a single pass, because it is the fastest and is
+> therefore what you would use in production.
+>
+> The consequence is a difference in the trailing digits: on these
+> calibrations the estimates agree to about ten significant figures, no
+> reported quantity moves, and the figures are visually indistinguishable —
+> but they are not byte-identical to the thesis's own images. Pass
+> `beta_method = "symengine"` to reproduce the thesis calibration exactly, or
+> `"qr"` if you widen `lower[1]` toward $m \to 0$, where the design matrix
+> approaches rank deficiency and squaring the condition number stops being
+> harmless. See `?fit_lppls` for the specification of each.
 
 ```{r figfit-data}
 set.seed(3630)
