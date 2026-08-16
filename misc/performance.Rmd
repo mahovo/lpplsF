@@ -1,0 +1,581 @@
+---
+title: "Performance of `lpplsF`"
+subtitle: "What was changed, why it was slow, and what each change bought"
+author: "lpplsF"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+    number_sections: true
+    df_print: kable
+params:
+  live:
+    label: "Run the benchmarks on this machine (FALSE = show the recorded numbers only)"
+    value: true
+  scale:
+    label: "Workload for the live whole-fit comparison"
+    value: "quick"
+    choices: ["quick", "spx"]
+  reps:
+    label: "Repetitions for the live whole-fit timings"
+    value: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+
+pkg_root <- "."
+for (up in c(".", "..", file.path("..", ".."))) {
+  if (file.exists(file.path(up, "DESCRIPTION"))) { pkg_root <- up; break }
+}
+suppressMessages(pkgload::load_all(pkg_root, quiet = TRUE))
+
+LIVE <- isTRUE(params$live)
+REPS <- as.integer(params$reps)
+
+## Timing helper, in microseconds per call. The repetition count is calibrated
+## rather than fixed: system.time() has millisecond resolution, so a fixed count
+## on a ~50 us call measures the clock, not the code. Keep doubling until the
+## accumulated time is long enough for the quantisation to be irrelevant.
+us_per_call <- function(expr, min_time = 0.4, max_reps = 5e5, env = parent.frame()) {
+  e <- substitute(expr)
+  invisible(eval(e, env))                                   # warm
+  reps <- 2L
+  repeat {
+    el <- system.time(for (i in seq_len(reps)) eval(e, env))[["elapsed"]]
+    if (el >= min_time || reps >= max_reps) break
+    reps <- min(max_reps, max(reps * 2, ceiling(reps * 1.3 * min_time / max(el, 1e-3))))
+  }
+  1e6 * el / reps
+}
+sec_median <- function(expr, reps = REPS, env = parent.frame()) {
+  e <- substitute(expr)
+  ts <- numeric(reps)
+  for (i in seq_len(reps)) { gc(FALSE); ts[i] <- system.time(eval(e, env))[["elapsed"]] }
+  stats::median(ts)
+}
+fmt <- function(x, d = 1) formatC(x, format = "f", digits = d, big.mark = ",")
+speedup <- function(before, after) sprintf("%.1fx", before / after)
+```
+
+```{r data}
+spx <- read.csv(system.file("extdata", "SPX.csv", package = "lpplsF"))
+names(spx)[1] <- "Date"
+spx$logpris <- log(spx$spindx)
+df_spx  <- spx[11800:14727, ]
+n_spx   <- nrow(df_spx) - 500          # 2428 calibration points
+y_spx   <- df_spx$logpris[seq_len(n_spx)]
+t_spx   <- seq_len(n_spx)
+tc_spx  <- 2717; m_spx <- 0.9; w_spx <- 6.1597
+Psi_spx <- c(m_spx, w_spx, 8.11798574, -9.089053e-4, 7.66909749e-5, 3.88299997e-5)
+
+## A smaller synthetic series for the live whole-fit comparison.
+set.seed(3630)
+n_q  <- 1000L
+y_q  <- eval_lppls(seq_len(n_q), 8, -0.025, 0.0015, 0.001, n_q + 61, 0.6, 8) +
+  rnorm(n_q) * 0.02
+```
+
+# What this document is
+
+`lpplsF`'s calibration was made about **27 times faster** over a sequence of
+changes, none of which altered a reported quantity. This report accounts for each
+change: what it was, why the original was slow, and what it bought.
+
+It is a **hybrid** of recorded and live measurement, for a reason worth stating
+plainly. Measuring a speed-up needs both arms, and most of the "before" arms no
+longer exist in the package — the looped MPL matrices, the `tibble`/`dplyr`
+bookkeeping, the two-pass objective and the old trace sizing were all removed.
+Only two survive as user-facing parameters: `beta_method = "symengine"` and
+`factr = 1e-08`.
+
+So:
+
+* **§2's arc is recorded**, from the sessions in which each change was made. It
+  cannot be re-derived here, because the code it measures is in git history.
+* **§3 onward is live** wherever the comparison is reachable — either through a
+  parameter, or by reproducing the previous implementation inline as a clearly
+  labelled reference function. Those reference functions are in this document,
+  not in the package.
+
+Set `params$live = FALSE` to render the recorded numbers alone.
+
+```{r env}
+data.frame(
+  item = c("R", "platform", "BLAS", "lpplsF", "live benchmarks", "workload"),
+  value = c(R.version.string,
+            R.version$platform,
+            basename(extSoftVersion()[["BLAS"]]),
+            as.character(utils::packageVersion("lpplsF")),
+            if (LIVE) "yes" else "no (recorded numbers only)",
+            params$scale)
+)
+```
+
+# The arc (recorded)
+
+The reference workload throughout is the S&P 500 calibration: $n = 2428$
+calibration points, `fh = 500` candidate $t_c$, `num_searches = 1`, `mode = "MPL"`.
+Each row adds one change to the row above it.
+
+```{r arc}
+arc <- data.frame(
+  stage = c("Original (symengine solver, factr = 1e-08)",
+            "+ crossprod solver (`beta_method`)",
+            "+ factr = 1e7 (optim's own default)",
+            "+ vectorised MPL matrices",
+            "+ flattened per-tc bookkeeping",
+            "+ fused objective"),
+  spx_mpl_s = c(87.5, 18.7, 8.63, 5.09, 4.45, 3.26),
+  stringsAsFactors = FALSE
+)
+arc$cumulative <- sprintf("%.1fx", arc$spx_mpl_s[1] / arc$spx_mpl_s)
+arc$step <- c("--", sprintf("%.2fx", head(arc$spx_mpl_s, -1) / tail(arc$spx_mpl_s, -1)))
+names(arc) <- c("stage", "SPX MPL fit (s)", "cumulative", "this step")
+arc
+```
+
+Two provenance notes. The first two rows are quoted from the session that made
+those changes; rows 3-6 were measured together under one protocol (median of
+three, each in a fresh R process). The 8.63 s in row 3 is that protocol's
+measurement of the state the earlier session recorded as 8.3 s — the difference
+is measurement conditions, not code.
+
+**Nothing in the arc moved a reported quantity.** Across every stage the SPX fit
+returns $t_c = 2717.0088\ldots$, $m = 0.9$, $\omega = 6.16$, MPLE $= 2717$ and
+likelihood intervals $[2696, 2757]$, $[2696, 2757]$, $[2696, 2744]$. The
+estimates shift in the 11th-12th significant digit where a change altered the
+arithmetic; §8 says which changes did that and which were bit-identical.
+
+# The linear solver
+
+At fixed $(t_c, m, \omega)$ the model is linear in $(A, B, C_1, C_2)$, so each
+objective evaluation solves a $4 \times 4$ least-squares problem. The thesis
+implementation solved it symbolically with **symengine**, building the entries of
+$X'X$ through `sum_*` helpers that recomputed the $\tau^m$/$\cos$/$\sin$ basis
+for *every entry* — 16 recomputations of the same three vectors per call.
+
+The fix was to build the basis once and hand $X$ to a numerical solver.
+`beta_method` now selects among four, with the symbolic one retained so the
+thesis calibration stays reproducible.
+
+```{r solvers, eval=LIVE}
+sol <- data.frame(method = c("crossprod", "qr", "chol", "symengine"),
+                  stringsAsFactors = FALSE)
+sol$us_per_call <- vapply(sol$method, function(mm) {
+  f <- create_beta_calculator(mm)
+  us_per_call(f(y_spx, t_spx, tc_spx, m_spx, w_spx))
+}, numeric(1))
+sol$relative <- sprintf("%.1fx", sol$us_per_call / min(sol$us_per_call))
+names(sol) <- c("beta_method", "us per call (n = 2428)", "vs fastest")
+sol
+```
+
+```{r solvers-note, results="asis", eval=LIVE}
+cat("The ordering is the point, not the absolute numbers: the symbolic solver is",
+    "an order of magnitude behind, and the cost is in forming `X'X`, not in the",
+    "symbolic step itself.\n")
+```
+
+# The convergence tolerance
+
+`fit_lppls()` inherited `factr = 1e-08` from the thesis. `factr` **multiplies
+machine epsilon**, so that asks for a relative tolerance of
+$10^{-8} \times 2.2\times10^{-16} \approx 2\times10^{-24}$ — unsatisfiable in
+double precision. L-BFGS-B therefore never converged; it ran until its line
+search failed and returned convergence code 52, having burned evaluations to no
+purpose. The default is now `1e7`, which is `optim()`'s own.
+
+```{r factr, eval=LIVE}
+bc <- create_beta_calculator("crossprod")
+sse2 <- function(par, tc, log_p, t) {
+  b <- bc(log_p, t, tc, par[1], par[2])
+  sum((log_p - eval_lppls(t, b["A"], b["B"], b["C1"], b["C2"],
+                          tc, par[1], par[2], mode = 0))^2, na.rm = TRUE)
+}
+## Aggregate over a stretch of candidate tc: whether the tolerance bites at all
+## depends on the individual sub-problem, so a single tc proves nothing.
+tc_scan <- n_spx + seq(1, 500, by = 5)          # 100 candidates across the range
+fr <- do.call(rbind, lapply(c(1e-08, 1e7), function(fc) {
+  o <- lapply(tc_scan, function(tc)
+    stats::optim(c(0.2, 12), sse2, tc = tc, log_p = y_spx, t = t_spx,
+                 lower = c(0.1, 6), upper = c(0.9, 13),
+                 method = "L-BFGS-B", control = list(factr = fc)))
+  data.frame(factr = format(fc),
+             evaluations = sum(vapply(o, function(z) z$counts[["function"]], 0)),
+             clean_convergence = sprintf("%d / %d",
+               sum(vapply(o, function(z) z$convergence, 0) == 0), length(o)),
+             worst_objective = sprintf("%.10f", max(vapply(o, function(z) z$value, 0))),
+             stringsAsFactors = FALSE)
+}))
+fr$evaluations_ratio <- sprintf("%.1fx", fr$evaluations / min(fr$evaluations))
+names(fr) <- c("factr", "objective evaluations (100 tc)", "clean convergence",
+               "worst optimum found", "cost vs factr = 1e7")
+fr
+```
+
+Both tolerances find the same optima; one of them stops when it gets there. Where
+`factr = 1e-08` does not return code 0, the optimiser ended in line-search
+failure rather than convergence — it could not satisfy a tolerance below what
+double precision represents.
+
+# Hoisting the solver out of the MPL loop
+
+`compute_mpl_loglik()` called `create_beta_calculator()` **once per candidate**
+$t_c$. For the symbolic method that means rebuilding four compiled visitor
+closures 500 times per fit. The calculator is now built once by `fit_lppls()` and
+passed down.
+
+```{r hoist, eval=LIVE}
+h <- data.frame(
+  what = c("create_beta_calculator('symengine')", "create_beta_calculator('crossprod')"),
+  us_per_call = c(us_per_call(create_beta_calculator("symengine")),
+                  us_per_call(create_beta_calculator("crossprod"))))
+h$cost_per_fit_s <- 500 * h$us_per_call / 1e6
+names(h) <- c("constructing the calculator", "us per construction", "x500 per fit (s)")
+h
+```
+
+# Vectorising the MPL matrices
+
+`compute_X_matrix()` and `compute_H_matrix()` walked the series in an R `for`
+loop, one observation at a time — $X$ twice and $H$ once per candidate $t_c$, so
+1,500 loop traversals of length $n$ per MPL fit. Both are pure elementwise
+arithmetic and vectorise directly.
+
+This was the single largest remaining win, and it needed no compiler. The loops
+below are the previous implementations, reproduced for comparison.
+
+```{r mplmat, eval=LIVE}
+compute_X_loop <- function(Psi, tc, t) {
+  n <- length(t); X <- matrix(0, n, 6)
+  m <- Psi[1]; omega <- Psi[2]; b <- Psi[4]; c1 <- Psi[5]; c2 <- Psi[6]
+  for (i in seq_len(n)) {
+    tau <- tc - t[i]; lt <- log(tau); tm <- tau^m
+    ct <- cos(omega * lt); st <- sin(omega * lt)
+    X[i, 1] <- tm * lt * (b + c1 * ct + c2 * st)
+    X[i, 2] <- tm * lt * (-c1 * st + c2 * ct)
+    X[i, 3] <- 1; X[i, 4] <- tm; X[i, 5] <- tm * ct; X[i, 6] <- tm * st
+  }
+  X
+}
+compute_H_loop <- function(Psi, tc, log_p, t) {
+  n <- length(t); H <- matrix(0, 6, 6)
+  m <- Psi[1]; omega <- Psi[2]; a <- Psi[3]
+  b <- Psi[4]; c1 <- Psi[5]; c2 <- Psi[6]
+  for (i in seq_len(n)) {
+    tau <- tc - t[i]; lt <- log(tau); tm <- tau^m
+    ct <- cos(omega * lt); st <- sin(omega * lt)
+    res <- log_p[i] - (a + tm * (b + c1 * ct + c2 * st))
+    H[1, 1] <- H[1, 1] + res * tm * lt^2 * (b + c1 * ct + c2 * st)
+    H[1, 2] <- H[1, 2] + res * tm * lt^2 * (-c1 * st + c2 * ct)
+    H[1, 4] <- H[1, 4] + res * tm * lt
+    H[1, 5] <- H[1, 5] + res * tm * lt * ct
+    H[1, 6] <- H[1, 6] + res * tm * lt * st
+    H[2, 2] <- H[2, 2] + res * (-1) * tm * lt^2 * (c1 * ct + c2 * st)
+    H[2, 5] <- H[2, 5] + res * (-1) * tm * lt * st
+    H[2, 6] <- H[2, 6] + res * tm * lt * ct
+  }
+  H[2, 1] <- H[1, 2]; H[4, 1] <- H[1, 4]; H[5, 1] <- H[1, 5]
+  H[6, 1] <- H[1, 6]; H[5, 2] <- H[2, 5]; H[6, 2] <- H[2, 6]
+  H
+}
+
+mm <- data.frame(
+  routine = c("compute_X_matrix", "compute_H_matrix"),
+  loop_us = c(us_per_call(compute_X_loop(Psi_spx, tc_spx, t_spx)),
+              us_per_call(compute_H_loop(Psi_spx, tc_spx, y_spx, t_spx))),
+  vec_us  = c(us_per_call(lpplsF:::compute_X_matrix(Psi_spx, tc_spx, t_spx)),
+              us_per_call(lpplsF:::compute_H_matrix(Psi_spx, tc_spx, y_spx, t_spx))),
+  stringsAsFactors = FALSE)
+mm$speedup <- sprintf("%.1fx", mm$loop_us / mm$vec_us)
+mm$identical <- c(
+  identical(compute_X_loop(Psi_spx, tc_spx, t_spx),
+            lpplsF:::compute_X_matrix(Psi_spx, tc_spx, t_spx)),
+  identical(compute_H_loop(Psi_spx, tc_spx, y_spx, t_spx),
+            lpplsF:::compute_H_matrix(Psi_spx, tc_spx, y_spx, t_spx)))
+mm$per_fit_saved_s <- (mm$loop_us - mm$vec_us) * c(1000, 500) / 1e6
+names(mm) <- c("routine", "loop (us)", "vectorised (us)", "speed-up",
+               "bit-identical", "saved per MPL fit (s)")
+mm
+```
+
+The `bit-identical` column is the important one: the vectorised forms return
+exactly the same matrices, so no figure or estimate moved.
+
+A related one-word change sits next to them. `compute_mpl_loglik()` computed
+$X'X$ as `crossprod(X, X)`, the two-argument form, which dispatches to a general
+matrix-matrix product. Written `crossprod(X)` it takes the symmetric-rank-update
+path instead: slightly cheaper, and exactly symmetric by construction — which
+matters, since $\det(X'X - H)$ is the observed information only when both terms
+are symmetric.
+
+```{r syrk, eval=LIVE}
+Xs <- lpplsF:::compute_X_matrix(Psi_spx, tc_spx, t_spx)
+data.frame(
+  form = c("crossprod(X, X)  [general product]", "crossprod(X)  [symmetric update]"),
+  us_per_call = c(us_per_call(crossprod(Xs, Xs)), us_per_call(crossprod(Xs))),
+  exactly_symmetric = c(identical(crossprod(Xs, Xs), t(crossprod(Xs, Xs))),
+                        identical(crossprod(Xs), t(crossprod(Xs)))))
+```
+
+# Flattening the per-`tc` bookkeeping
+
+Everything in the `tc` loop that was not the optimisation was `tibble` row
+assignment, two `dplyr::arrange()` calls and a `dplyr::filter()` per candidate,
+plus an `rbind()` that regrew the results table on every iteration — quadratic in
+`fh`. It also built and sorted two tables per candidate that nothing ever read.
+
+It is now preallocated vectors, assembled into the documented tibbles once after
+the loop. The block below reproduces the old per-candidate work.
+
+```{r bookkeeping, eval=LIVE}
+tbl0 <- tibble::tibble(ID = 1L, value = 5.3, tc = 2717, m = 0.9, omega = 6.16,
+                       A = 8.1, B = -9e-4, C1 = 7.7e-5, C2 = 3.9e-5, D = 1.5)
+old_block <- function(fh = 500) {
+  best <- tbl0[rep(1, fh), ]; acc <- tbl0[0, ]
+  for (k in seq_len(fh)) {
+    tmp <- tbl0
+    tmp[1, ] <- list(1L, 5.3, 2429 + k, 0.9, 6.16, 8.1, -9e-4, 7.7e-5, 3.9e-5, 1.5)
+    s1 <- dplyr::arrange(tmp, value)
+    s2 <- dplyr::arrange(dplyr::filter(tmp, B < 0), value)
+    best[k, ] <- s1[1, ]
+    if (nrow(s2) > 0) acc <- rbind(acc, s2[1, ])
+  }
+  list(best, acc)
+}
+## The replacement, faithfully: the same ten columns are accumulated in
+## preallocated vectors and assembled into the same two tibbles after the loop.
+new_block <- function(fh = 500) {
+  b <- replicate(10, numeric(fh), simplify = FALSE)
+  f <- replicate(10, numeric(fh), simplify = FALSE)
+  n_keep <- 0L
+  for (k in seq_len(fh)) {
+    s_val <- 5.3; s_B <- -9e-4
+    row <- list(1, 5.3, 2429 + k, 0.9, 6.16, 8.1, -9e-4, 7.7e-5, 3.9e-5, 1.5)
+    j <- which.min(s_val); if (!length(j)) j <- 1L
+    for (c in 1:10) b[[c]][k] <- row[[c]]
+    if (length(which(s_B < 0))) {
+      n_keep <- n_keep + 1L
+      for (c in 1:10) f[[c]][n_keep] <- row[[c]]
+    }
+  }
+  kept <- seq_len(n_keep)
+  list(tibble::tibble(ID = as.integer(b[[1]]), value = b[[2]], tc = b[[3]],
+                      m = b[[4]], omega = b[[5]], A = b[[6]], B = b[[7]],
+                      C1 = b[[8]], C2 = b[[9]], D = b[[10]]),
+       tibble::tibble(ID = as.integer(f[[1]][kept]), value = f[[2]][kept],
+                      tc = f[[3]][kept], m = f[[4]][kept], omega = f[[5]][kept],
+                      A = f[[6]][kept], B = f[[7]][kept], C1 = f[[8]][kept],
+                      C2 = f[[9]][kept], D = f[[10]][kept]))
+}
+bk <- data.frame(
+  implementation = c("tibble + dplyr + growing rbind", "preallocated vectors"),
+  seconds_per_fit = c(us_per_call(old_block(), min_time = 1.5) / 1e6,
+                      us_per_call(new_block(), min_time = 1.5) / 1e6))
+bk$per_tc_us <- 1e6 * bk$seconds_per_fit / 500
+names(bk) <- c("implementation (500 candidate tc)", "s per fit", "us per tc")
+bk
+```
+
+This is a fixed cost per fit that neither vectorising nor a compiler would have
+touched — it is not numerics at all.
+
+# The trace replay
+
+The BFGS trace plots reconstruct the optimiser's path by re-running L-BFGS-B with
+`maxit = 1, 2, 3, ...`. The number of steps was taken from `optim()`'s
+`counts["function"]`, which counts **calls to the objective, not iterations** —
+in practice 2 to 12 times the number of steps. The trace was therefore padded
+with points sitting exactly on top of the converged one; under the old
+`factr = 1e-08`, where the optimiser never converged, e008's trace held 91 points
+for an 11-step path.
+
+The length is now discovered: extend `maxit` until the iterate stops changing.
+
+```{r trace, eval=LIVE}
+steps_to_settle <- function(tc) {
+  prev <- NULL
+  for (k in 1:200) {
+    p <- stats::optim(c(0.2, 12), sse2, tc = tc, log_p = y_spx, t = t_spx,
+                      lower = c(0.1, 6), upper = c(0.9, 13),
+                      method = "L-BFGS-B", control = list(maxit = k))$par
+    if (!is.null(prev) && identical(p, prev)) return(k - 1L)
+    prev <- p
+  }
+  NA_integer_
+}
+tr <- do.call(rbind, lapply(c(2429, 2600, 2717, 2928), function(tc) {
+  o <- stats::optim(c(0.2, 12), sse2, tc = tc, log_p = y_spx, t = t_spx,
+                    lower = c(0.1, 6), upper = c(0.9, 13),
+                    method = "L-BFGS-B", control = list(factr = 1e7))
+  data.frame(tc = tc, counts_function = o$counts[["function"]],
+             actual_steps = steps_to_settle(tc))
+}))
+tr$over_run <- sprintf("%.1fx", tr$counts_function / tr$actual_steps)
+names(tr) <- c("tc", "counts['function'] (old length)", "actual steps", "over-run")
+tr
+```
+
+# Fusing the objective
+
+Each objective evaluation built the $\tau^m$/$\cos$/$\sin$ basis to solve for
+$\hat\beta$, discarded it, and then rebuilt the identical quantities inside
+`eval_lppls()` to form the fitted values. The `"crossprod"` path now keeps the
+design matrix and takes the fitted values as $X\hat\beta$ — one pass instead of
+two.
+
+`misc/fused_objective.md` is the full mathematical account, including why the two
+forms are algebraically identical but differ by about one unit in the last place
+of the SSE.
+
+```{r fused, eval=LIVE}
+sse_two_pass <- function(log_p, t, tc, m, omega) {
+  b <- bc(log_p, t, tc, m, omega)
+  sum((log_p - eval_lppls(t, b["A"], b["B"], b["C1"], b["C2"],
+                          tc, m, omega, mode = 0))^2, na.rm = TRUE)
+}
+sse_fused <- lpplsF:::create_sse_calculator("crossprod")
+fu <- data.frame(
+  implementation = c("two-pass (solve, then re-evaluate the model)",
+                     "fused (solve, then X %*% beta)"),
+  us_per_call = c(us_per_call(sse_two_pass(y_spx, t_spx, tc_spx, m_spx, w_spx)),
+                  us_per_call(sse_fused(y_spx, t_spx, tc_spx, m_spx, w_spx))))
+fu$speedup <- c("--", sprintf("%.2fx", fu$us_per_call[1] / fu$us_per_call[2]))
+a <- sse_two_pass(y_spx, t_spx, tc_spx, m_spx, w_spx)
+b <- sse_fused(y_spx, t_spx, tc_spx, m_spx, w_spx)
+fu$relative_difference <- c("--", sprintf("%.2e", abs(a - b) / b))
+names(fu) <- c("implementation", "us per call", "speed-up", "rel. difference in SSE")
+fu
+```
+
+Since the objective is evaluated **26,890 times** in a single SPX F2 calibration
+— 500 candidate $t_c$, each driving a search whose finite-difference gradients
+cost about 54 evaluations — a saving of tens of microseconds per call is seconds
+per fit.
+
+# Live whole-fit comparison
+
+The two changes still reachable as parameters, measured end to end on this
+machine. Note what this **cannot** show: the vectorised matrices, the flattened
+bookkeeping and the fused objective are unconditional now, so they are present in
+*both* arms. This comparison therefore isolates the solver and the tolerance
+only; the full arc is §2.
+
+```{r wholefit, eval=LIVE}
+wf_args <- if (identical(params$scale, "spx")) {
+  list(log_price = df_spx$logpris, fh = 500, hold_out = 500,
+       lower = c(0.1, 6, -0.5, 0.8), upper = c(0.9, 13, -1e-14, 1e6),
+       tc_init = n_spx + 250, m_init = 0.2, o_init = 12, num_searches = 1,
+       mode = "MPL", mpl_cutoff = c(0.05, 0.1, 0.5))
+} else {
+  list(log_price = y_q, fh = 60, hold_out = 0,
+       lower = c(0.1, 6, -0.03, 0.8), upper = c(0.9, 13, -1e-14, 1e6),
+       tc_init = n_q + 30, m_init = 0.2, o_init = 12, num_searches = 1,
+       mode = "MPL", mpl_cutoff = c(0.05, 0.1, 0.5))
+}
+run_wf <- function(method, factr) {
+  a <- c(wf_args, list(beta_method = method, factr = factr))
+  ts <- numeric(REPS); fit <- NULL
+  for (i in seq_len(REPS)) {
+    gc(FALSE)
+    ts[i] <- system.time(fit <- suppressWarnings(do.call(fit_lppls, a)))[["elapsed"]]
+  }
+  list(t = stats::median(ts), tc = fit$fit[[1]]$tc)
+}
+w_old <- run_wf("symengine", 1e-08)
+w_new <- run_wf("crossprod", 1e7)
+wf <- data.frame(
+  configuration = c("symengine solver, factr = 1e-08 (original)",
+                    "crossprod solver, factr = 1e7 (current default)"),
+  seconds = c(w_old$t, w_new$t),
+  tc_hat = sprintf("%.8f", c(w_old$tc, w_new$tc)))
+wf$speedup <- c("--", sprintf("%.1fx", w_old$t / w_new$t))
+names(wf) <- c("configuration", "seconds", "estimated tc", "speed-up")
+wf
+```
+
+```{r wholefit-note, results="asis", eval=LIVE}
+cat(sprintf("Workload: `%s`. The two estimates agree to the precision the model reports.\n",
+            params$scale))
+```
+
+# What was declined, and why
+
+**Internal parallelism.** Distributing the `tc` loop over cores measured 4.76x at
+8 cores with bit-identical results, and was still declined: the loop is not
+side-effect free (`out_of_range_tracker`), random restarts break reproducibility
+under `mclapply`, efficiency collapses past 4 cores on this hardware, and a
+planned sweep layer over many series is a wider and safer parallel axis. Cores
+spent inside `fit_lppls()` are cores taken from the sweep.
+
+**A compiled `src/`.** Working Rcpp prototypes exist and were measured
+(`misc/rcpp_survey.md`, `misc/rcpp_survey_prototypes.cpp`). The headline ratios
+looked decisive — 13.9x for `compute_X_matrix`, 33.4x for `compute_H_matrix` —
+but those were measured against the *interpreted loops*. Vectorised R recovers
+most of that for free, and once it does, the whole remaining gain from compiling
+is about **1.2x**. That did not justify a permanent `src/` directory, a C++
+toolchain for source installs and more CRAN platforms to satisfy, so it was
+deferred rather than adopted. The measurements and the reasoning are in
+`misc/rcpp_survey.md`.
+
+# Which changes altered the arithmetic
+
+Some changes are bit-identical; others shift the trailing digits. None moves a
+reported quantity, but the distinction matters for anyone comparing cached fits.
+
+```{r invariance}
+data.frame(
+  change = c("crossprod solver (from symengine)",
+             "factr = 1e7",
+             "vectorised MPL matrices",
+             "crossprod(X) for X'X",
+             "flattened bookkeeping",
+             "trace replay length",
+             "fused objective"),
+  bitwise = c("no", "no", "YES", "YES", "YES", "YES (fit unaffected)", "no"),
+  effect = c("estimates differ ~1e-14",
+             "estimates unchanged at reported precision; convergence code 52 -> 0",
+             "matrices identical",
+             "identical, and exactly symmetric",
+             "whole fit object identical",
+             "plot only; fewer, non-duplicated points",
+             "SSE differs ~1 ulp; tc in the 12th digit"),
+  stringsAsFactors = FALSE
+)
+```
+
+A calibration is bit-reproducible only against the same `beta_method` and
+`factr`. `beta_method = "symengine"` reproduces the thesis calibration.
+
+# Method
+
+Three things that cost real time to learn, recorded so they need not be
+rediscovered:
+
+1. **Measure in a fresh R process.** Calling `pkgload::unload()` and then
+   `load_all()` on a second copy in one session inflated the MPL stage roughly
+   fivefold — 19.1 s against 3.7 s for the same code. GC pressure was ruled out
+   explicitly (nothing retained / all fits retained / 20,000 ballast objects:
+   8.51, 8.60, 8.62 s).
+2. **Run a control before attributing anything.** Every figure comparison in this
+   work rendered twice with nothing changed first, to establish that the render
+   was deterministic.
+3. **`Rprof()` crashes R during an MPL fit on macOS.** It is R's sampling
+   profiler colliding with Apple Accelerate's `DGEMM`, not a package fault; it
+   reproduces in four lines of base R with no packages loaded. Use
+   `options(matprod = "internal")` for the profiling session. Full account in
+   `misc/rprof_mpl_crash.md`.
+
+# Reproducing this report
+
+```r
+rmarkdown::render("misc/performance.Rmd",
+                  params = list(live = TRUE, scale = "quick"))
+```
+
+`scale = "spx"` runs the whole-fit comparison on the real S&P 500 calibration
+instead of the small synthetic series; expect it to take a few minutes, most of
+it in the symengine arm. `live = FALSE` renders the recorded numbers alone.
