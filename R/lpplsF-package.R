@@ -94,3 +94,20 @@
 #' @name lpplsF-package
 #' @aliases lpplsF-package
 "_PACKAGE"
+
+
+## Column names referred to bare inside ggplot2::aes() and dplyr verbs. R's code
+## analysis cannot see that these are resolved against a data frame at evaluation
+## time, so it reports them as undefined globals; declaring them here is the
+## conventional remedy. Keep in sync with the aes() calls -- a stale entry is
+## harmless, a missing one reappears as a check NOTE.
+utils::globalVariables(c(
+  ## fit tables (fit[[2]], fit[[4]]) and the parameter / basin plots
+  "ID", "tc", "value", "m", "omega", "B", "estimate", "basin",
+  ## rolling tables and their likelihood-interval columns
+  "T1", "tc_hat_mpl", "LI5l", "LI5u", "LI10l", "LI10u", "LI50l", "LI50u",
+  ## Lagrange diagnostics
+  "chi_sq_np", "chi_sq_lambda",
+  ## MPL, SSE-surface and trace plots
+  "log_mpl", "xintercept", "series", "sse", "vals", "log_p", "y"
+))

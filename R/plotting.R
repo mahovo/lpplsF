@@ -687,7 +687,10 @@ create_trace_plot <- function(
       warning("tp_id for (B,m) trace plot is <1 or too high. Replaced with tp_id=1\n")
     }
 
-    SSE_tp <- function(par, a, c1, c2, tc, omega, log_p, t) {
+    ## Named for its selector: the (B, m) lattice varies m and B at fixed omega.
+    ## The (B, omega) branch below needs a different signature, so the two must
+    ## not share a name.
+    SSE_bm <- function(par, a, c1, c2, tc, omega, log_p, t) {
       SSE(
         par = list(
           A = a,
@@ -706,7 +709,7 @@ create_trace_plot <- function(
     lattice_vals <- apply(
       lattice,
       1,
-      SSE_tp,
+      SSE_bm,
       a = unname(beta_tp["A"]),
       c1 = unname(beta_tp["C1"]),
       c2 = unname(beta_tp["C2"]),
@@ -738,7 +741,8 @@ create_trace_plot <- function(
       warning("tp_id for (B,omega) trace plot too high. Replaced with tp_id=1\n")
     }
 
-    SSE_tp <- function(par, a, c1, c2, tc, m, log_p, t) {
+    ## The (B, omega) lattice: varies omega and B at fixed m.
+    SSE_bo <- function(par, a, c1, c2, tc, m, log_p, t) {
       SSE(
         par = list(
           A = a,
@@ -757,7 +761,7 @@ create_trace_plot <- function(
     lattice_vals <- apply(
       lattice,
       1,
-      SSE_tp,
+      SSE_bo,
       a = unname(beta_tp["A"]),
       c1 = unname(beta_tp["C1"]),
       c2 = unname(beta_tp["C2"]),
@@ -781,14 +785,14 @@ create_trace_plot <- function(
       ggplot2::geom_path(data = opt_df, col = "orange") +
       ggplot2::geom_point(data = opt_df, col = "orange") +
       ggplot2::geom_point(
-        data = head(opt_df, 1),
+        data = utils::head(opt_df, 1),
         shape = 21,
         fill = "red",
         color = "orange",
         size = 3
       ) +
       ggplot2::geom_point(
-        data = tail(opt_df, 1),
+        data = utils::tail(opt_df, 1),
         shape = 23,
         fill = "green",
         color = "orange",
@@ -807,14 +811,14 @@ create_trace_plot <- function(
       ggplot2::geom_path(data = opt_df, col = "orange") +
       ggplot2::geom_point(data = opt_df, col = "orange") +
       ggplot2::geom_point(
-        data = head(opt_df, 1),
+        data = utils::head(opt_df, 1),
         shape = 21,
         fill = "red",
         color = "orange",
         size = 3
       ) +
       ggplot2::geom_point(
-        data = tail(opt_df, 1),
+        data = utils::tail(opt_df, 1),
         shape = 23,
         fill = "green",
         color = "orange",
@@ -833,14 +837,14 @@ create_trace_plot <- function(
       ggplot2::geom_path(data = opt_df, col = "orange") +
       ggplot2::geom_point(data = opt_df, col = "orange") +
       ggplot2::geom_point(
-        data = head(opt_df, 1),
+        data = utils::head(opt_df, 1),
         shape = 21,
         fill = "red",
         color = "orange",
         size = 3
       ) +
       ggplot2::geom_point(
-        data = tail(opt_df, 1),
+        data = utils::tail(opt_df, 1),
         shape = 23,
         fill = "green",
         color = "orange",

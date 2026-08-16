@@ -203,26 +203,24 @@ sse_two_pass <- function(method) {
   }
 }
 
-test_that("fusing leaves every solver but crossprod bit-identical", {
+test_that("symengine stays on the two-pass form, bit-identically", {
   d <- sample_case()
-  for (mth in c("qr", "chol", "symengine")) {
-    fused <- lpplsF:::create_sse_calculator(mth)
-    naive <- sse_two_pass(mth)
-    expect_identical(fused(d$log_p, d$t, d$tc, d$m, d$omega),
-                     naive(d$log_p, d$t, d$tc, d$m, d$omega),
-                     info = mth)
-  }
+  ## This is the guarantee that lets "symengine" reproduce the thesis
+  ## calibration exactly rather than merely to rounding.
+  expect_identical(
+    lpplsF:::create_sse_calculator("symengine")(d$log_p, d$t, d$tc, d$m, d$omega),
+    sse_two_pass("symengine")(d$log_p, d$t, d$tc, d$m, d$omega))
 })
 
-test_that("the fused crossprod objective matches the two-pass form to machine precision", {
+test_that("the fused objectives match their two-pass forms to machine precision", {
   d <- sample_case()
-  fused <- lpplsF:::create_sse_calculator("crossprod")
-  naive <- sse_two_pass("crossprod")
-  a <- fused(d$log_p, d$t, d$tc, d$m, d$omega)
-  b <- naive(d$log_p, d$t, d$tc, d$m, d$omega)
-  ## Same quantity, summed in a different order: equal to within rounding,
-  ## but deliberately not asserted bit-identical.
-  expect_equal(a, b, tolerance = 1e-12)
+  for (mth in c("crossprod", "qr", "chol")) {
+    a <- lpplsF:::create_sse_calculator(mth)(d$log_p, d$t, d$tc, d$m, d$omega)
+    b <- sse_two_pass(mth)(d$log_p, d$t, d$tc, d$m, d$omega)
+    ## Same quantity summed in a different order: equal to within rounding,
+    ## and deliberately not asserted bit-identical.
+    expect_equal(a, b, tolerance = 1e-12, info = mth)
+  }
 })
 
 test_that("all four objectives agree across the admissible box", {

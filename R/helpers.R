@@ -283,14 +283,17 @@ create_beta_calculator <- function(method = c("crossprod", "qr", "chol",
 #' @details
 #' The naive form calls the beta calculator and then [eval_lppls()], which walks
 #' the series twice and builds the same
-#' \eqn{\tau^m}{tau^m}/\eqn{\cos}{cos}/\eqn{\sin}{sin} basis in both. For
-#' `"crossprod"` this returns a fused version instead: the design matrix is
-#' formed once, and the fitted values are taken as \eqn{X\hat\beta}{X beta_hat}
-#' rather than rebuilt from the closed-form model. That is the same arithmetic
-#' in a different association order, so it is *not* bit-identical to the
-#' two-pass form -- see the `beta_method` documentation of [fit_lppls()].
+#' \eqn{\tau^m}{tau^m}/\eqn{\cos}{cos}/\eqn{\sin}{sin} basis in both. The three
+#' numerical solvers return a fused version instead, which builds the design
+#' matrix once: `"crossprod"` and `"chol"` take the residuals as
+#' \eqn{y - X\hat\beta}{y - X beta_hat}, and `"qr"` takes them straight from
+#' [stats::.lm.fit()], which produces them as part of the factorisation. That is
+#' the same arithmetic in a different association order, so it is *not*
+#' bit-identical to the two-pass form -- see the `beta_method` documentation of
+#' [fit_lppls()].
 #'
-#' The other methods keep the two-pass form, so their results are unchanged.
+#' `"symengine"` deliberately keeps the two-pass form, so that the thesis
+#' calibration is reproduced exactly rather than merely to rounding.
 #'
 #' @param method Solver, as in [create_beta_calculator()].
 #' @param beta_calculator Optional pre-built calculator for `method`, reused so
@@ -305,22 +308,45 @@ create_sse_calculator <- function(method = c("crossprod", "qr", "chol",
                                   beta_calculator = NULL) {
   method <- match.arg(method)
 
+  ## The basis, shared by the three numerical solvers below.
+  design <- function(t, tc, m, omega) {
+    tau  <- tc - t
+    taum <- tau^m
+    lt   <- omega * log(tau)
+    cbind(1, taum, taum * cos(lt), taum * sin(lt))
+  }
+
   if (method == "crossprod") {
     ## One pass: build the basis, solve the normal equations, and form the
     ## residuals from the design matrix that is already in hand.
     return(function(log_p, t, tc, m, omega) {
-      tau  <- tc - t
-      taum <- tau^m
-      lt   <- omega * log(tau)
-      X    <- cbind(1, taum, taum * cos(lt), taum * sin(lt))
-      b    <- base::solve(crossprod(X), crossprod(X, log_p))
-      r    <- log_p - X %*% b
+      X <- design(t, tc, m, omega)
+      b <- base::solve(crossprod(X), crossprod(X, log_p))
+      r <- log_p - X %*% b
       sum(r * r, na.rm = TRUE)
     })
   }
 
-  ## Every other method keeps the original two-pass evaluation, so that
-  ## "symengine" in particular reproduces the thesis calibration exactly.
+  if (method == "qr") {
+    ## .lm.fit() returns the residuals from the QR factorisation itself, so the
+    ## fitted values never have to be reconstructed at all.
+    return(function(log_p, t, tc, m, omega) {
+      r <- stats::.lm.fit(design(t, tc, m, omega), log_p)$residuals
+      sum(r * r, na.rm = TRUE)
+    })
+  }
+
+  if (method == "chol") {
+    return(function(log_p, t, tc, m, omega) {
+      X <- design(t, tc, m, omega)
+      b <- chol2inv(chol(crossprod(X))) %*% crossprod(X, log_p)
+      r <- log_p - X %*% b
+      sum(r * r, na.rm = TRUE)
+    })
+  }
+
+  ## "symengine" keeps the original two-pass evaluation, so that the thesis
+  ## calibration is reproduced exactly rather than merely to rounding.
   bc <- if (is.null(beta_calculator)) create_beta_calculator(method) else beta_calculator
   function(log_p, t, tc, m, omega) {
     beta <- bc(log_p, t, tc, m, omega)

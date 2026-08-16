@@ -126,7 +126,9 @@
 #'       as \eqn{y - X\hat\beta}{y - X beta_hat}, so the series is walked a
 #'       single time. Exact to well within anything interpretable over the
 #'       admissible \eqn{0.1 \le m \le 0.9}{0.1 <= m <= 0.9}.}
-#'     \item{`"qr"`}{Householder QR of \eqn{X} via [.lm.fit()]. Never forms
+#'     \item{`"qr"`}{Householder QR of \eqn{X} via [.lm.fit()], which yields the
+#'       residuals as part of the factorisation, so the fitted values are never
+#'       reconstructed. Never forms
 #'       \eqn{X'X}, and since
 #'       \eqn{\kappa_2(X'X) = \kappa_2(X)^2}{kappa(X'X) = kappa(X)^2} it does not
 #'       square the condition number. About 30% slower and markedly more
@@ -143,8 +145,9 @@
 #'       least accurate of the four.}
 #'   }
 #'
-#'   The methods are not bit-identical to one another, and `"crossprod"` is not
-#'   bit-identical to a two-pass evaluation of the same normal equations: forming
+#'   The methods are not bit-identical to one another. The three numerical
+#'   solvers evaluate the objective in a single pass over the series, which is
+#'   also not bit-identical to a two-pass evaluation of the same solve: forming
 #'   the fitted values as \eqn{X\hat\beta}{X beta_hat} sums the four terms in a
 #'   different order than re-evaluating
 #'   \eqn{A + \tau^{m}(B + C_1\cos(\omega\log\tau) +
