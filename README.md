@@ -118,6 +118,6 @@ If you use this package in your research, please cite:
   author = {Martin Hoshi Vognsen},
   year = {2026},
   note = {R package version 0.1.0},
-  url = {https://github.com/yourusername/lpplsF}
+  url = {https://github.com/mahovo/lpplsF}
 }
 ```
