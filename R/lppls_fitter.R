@@ -104,6 +104,20 @@
 #'   reaching the same optimum. See `misc/bench_beta.Rmd` for the measurements.
 #' @param fb Logical, whether to print feedback during execution (default
 #'   `FALSE`).
+#' @param style One of `"simulated"` (default) or `"empirical"`, passed to
+#'   [fit_plot()] for the attached fit plot. `"empirical"` draws an observed
+#'   series in grey and splits the fitted curve at `T2`, so the forecast beyond
+#'   the calibration window is marked in red. See [fit_plot()].
+#' @param data_label `NULL` (default) or a string naming the observed series in
+#'   the attached fit plot's legend. The default follows `style`.
+#' @param dates `NULL` (default) or a `Date` vector the same length as
+#'   `log_price`, strictly increasing, labelling the 1..n time index with
+#'   calendar dates. Purely presentational: the calibration is index-based and
+#'   its results do not depend on `dates`. When supplied, the attached fit plot
+#'   is drawn on a calendar axis, and `print()` and `summary()` report
+#'   \eqn{\hat{t}_c}{tc-hat}, the MPLE and every likelihood interval as dates as
+#'   well as indices. A forecast critical time beyond the end of the series is
+#'   extrapolated at the series' median spacing and flagged with `*`.
 #' @param beta_method Character, how to solve for the linear parameters
 #'   \eqn{A, B, C_1, C_2} given \eqn{(t_c, m, \omega)}.
 #'
@@ -398,10 +412,18 @@ fit_lppls <- function(
   mp = FALSE,
   factr = 1e7,
   fb = FALSE,
-  beta_method = c("crossprod", "qr", "chol", "symengine")
+  beta_method = c("crossprod", "qr", "chol", "symengine"),
+  dates = NULL,
+  style = c("simulated", "empirical"),
+  data_label = NULL
 ) {
 
   beta_method <- match.arg(beta_method)
+
+  ## Optional calendar labels for the 1..n time index. Purely presentational --
+  ## the calibration itself is index-based and is unaffected by them.
+  dates <- .check_dates(dates, length(log_price))
+  style <- match.arg(style)
 
   if (!mode %in% c("F1", "F2", "MPL")) {
     stop("mode must be one of: 'F1', 'F2', 'MPL'")
@@ -861,7 +883,10 @@ fit_lppls <- function(
       time_ID   = time_id,
       log_price = log_price,
       mode      = 0,
-      T2        = n            # n was the old n_model (the T2 marker position)
+      T2        = n,           # n was the old n_model (the T2 marker position)
+      dates      = dates,
+      style      = style,
+      data_label = data_label
     )
   }
 
@@ -1038,6 +1063,10 @@ fit_lppls <- function(
       ## estimate, residuals) do not make the caller supply it again. The
       ## calibration slice is log_price[seq_len(fit_args$n)].
       log_price = log_price,
+      ## Calendar labels for the time index, when the caller supplied them.
+      ## NULL for an index-only calibration; print(), summary() and plot() all
+      ## fall back to indices when it is absent.
+      dates = dates,
       fit_args = list(
         mode         = mode,
         n            = n,
@@ -1083,7 +1112,11 @@ fit_lppls <- function(
     hold_out     = pick(a$hold_out, NA_integer_),
     num_searches = pick(a$num_searches, NA_integer_),
     estimate     = est,
-    n_fits       = if (is.null(tbl)) NA_integer_ else nrow(tbl)
+    n_fits       = if (is.null(tbl)) NA_integer_ else nrow(tbl),
+    ## Calendar labels, when the calibration was given any. Absent from fits made
+    ## before `dates` existed, so everything downstream treats NULL as "indices
+    ## only" rather than an error.
+    dates        = x$dates
   )
 
   ## Boundary solutions: the point estimate, then the whole table of fits.
@@ -1233,11 +1266,27 @@ print.lppls_fit <- function(x, ...) {
   e    <- d$estimate
   unit <- if (identical(d$mode, "F1")) "restarts" else "conditional fits"
 
+  ## Calendar labels, when the calibration carries them. A date past the end of
+  ## the series is extrapolated, and marked with a trailing "*" so a forecast
+  ## critical time is never mistaken for an observed one.
+  dts       <- d$dates
+  extrap    <- FALSE
+  as_date   <- function(ids) {
+    if (is.null(dts)) return(NULL)
+    dd <- .ids_to_dates(ids, dts)
+    bb <- .ids_beyond(ids, dts)
+    if (any(bb)) extrap <<- TRUE
+    ifelse(is.na(dd), "NA", paste0(format(dd), ifelse(bb, "*", "")))
+  }
+
   cat(sprintf("LPPLS calibration (mode = %s)\n", d$mode))
   cat(sprintf("  Window:    n = %s   fh = %s   hold_out = %s   num_searches = %s\n",
               d$n, d$fh, d$hold_out, d$num_searches))
-  cat(sprintf("  Estimate:  tc = %.2f   m = %.4f   omega = %.4f   D = %.3f   SSE = %.6g\n",
-              e$tc, e$m, e$omega, e$D, e$value))
+  tc_date <- as_date(e$tc)
+  cat(sprintf("  Estimate:  tc = %.2f%s   m = %.4f   omega = %.4f   D = %.3f   SSE = %.6g\n",
+              e$tc,
+              if (is.null(tc_date)) "" else sprintf(" (%s)", tc_date),
+              e$m, e$omega, e$D, e$value))
 
   if (is.null(d$boundary_counts)) {
     cat("  Bounds:    not recorded for this fit\n")
@@ -1268,20 +1317,41 @@ print.lppls_fit <- function(x, ...) {
   cat(sprintf("  Filters:   B out of range %d   D out of range %d\n", d$oor_B, d$oor_D))
 
   if (!is.null(d$mpl)) {
-    cat(sprintf("  MPL:       defined at %d/%d tc   MPLE = %s\n",
-                d$mpl$defined, d$mpl$total, d$mpl$mple))
+    mple_date <- as_date(d$mpl$mple)
+    cat(sprintf("  MPL:       defined at %d/%d tc   MPLE = %s%s\n",
+                d$mpl$defined, d$mpl$total, d$mpl$mple,
+                if (is.null(mple_date)) "" else sprintf(" (%s)", mple_date)))
     if (length(d$mpl$li)) {
       lab <- if (length(d$mpl$cutoff) == length(d$mpl$li)) {
         sprintf("LI(%.2f)", d$mpl$cutoff)
       } else {
         sprintf("LI[%d]", seq_along(d$mpl$li))
       }
-      cat("             ",
-          paste(mapply(function(l, li) sprintf("%s [%s, %s]", l, li[1], li[2]),
-                       lab, d$mpl$li),
-                collapse = "   "),
-          "\n", sep = "")
+      if (is.null(dts)) {
+        ## No calendar: keep the compact one-line form.
+        cat("             ",
+            paste(mapply(function(l, li) sprintf("%s [%s, %s]", l, li[1], li[2]),
+                         lab, d$mpl$li),
+                  collapse = "   "),
+            "\n", sep = "")
+      } else {
+        ## With a calendar each interval gets its own line, indices then dates --
+        ## three intervals with both representations do not fit on one line.
+        for (i in seq_along(d$mpl$li)) {
+          li <- d$mpl$li[[i]]
+          dd <- as_date(li)
+          cat(sprintf("             %s [%s, %s]   (%s .. %s)\n",
+                      lab[i], li[1], li[2], dd[1], dd[2]))
+        }
+      }
     }
+  }
+
+  ## Outside the MPL block on purpose: a forecast tc can be extrapolated even
+  ## when no modified profile likelihood was computed.
+  if (isTRUE(extrap)) {
+    cat("             * date extrapolated past the end of the series,",
+        "at its median spacing\n")
   }
 
   flags <- character(0)
@@ -1439,21 +1509,30 @@ plot.lppls_fit <- function(x, which = c("basin", "param_basin", "fit", "mpl",
 
 #' Curvature of the LPPLS objective at the estimate
 #'
-#' Tests whether the calibration sits at a genuine interior minimum. The
-#' modified profile likelihood assumes it does: its correction term uses
-#' \eqn{\det(X'X - H)}{det(X'X - H)}, the observed information, which is only guaranteed
-#' positive at an interior stationary point.
-#'
-#' By the Schur complement, \eqn{\det(X'X - H)}{det(X'X - H)} factorises into the determinant
-#' of the linear-parameter block (always positive) times the determinant of the
-#' 2x2 Hessian of the \eqn{(m, \omega)} profile. So the sign of the full
-#' determinant is decided entirely by the curvature in the two nonlinear
-#' parameters, and that 2x2 block is what this function reports. A saddle there
-#' is the signature of an estimate resting on an optimisation bound.
+#' Tests whether the calibration sits at a genuine interior minimum.
 #'
 #' @param x An object of class `"lppls_fit"` from [fit_lppls()].
 #' @param log_price Optional numeric vector, the series the fit was calibrated
 #'   on. Only needed for fits made before `fit_lppls()` stored it.
+#'
+#' @details
+#' The modified profile likelihood assumes the estimate is an interior minimum:
+#' its correction uses \eqn{\det(X'X - H)}, the observed information, which is
+#' only guaranteed positive at an interior stationary point. \eqn{X} holds the
+#' model's first derivatives with respect to the six parameters, and \eqn{H} its
+#' second derivatives, each weighted by the residual at that observation and
+#' summed (thesis eq. 55). \eqn{H} is thus a residual-weighted curvature term
+#' rather than a Hessian in its own right. `lppls_curvature()` tests the
+#' determinant directly, and factorises it to show where the sign comes from.
+#'
+#' By the Schur complement, \eqn{\det(X'X - H)} factorises into the determinant
+#' of the linear-parameter block times the determinant of the \eqn{2 \times 2}
+#' Hessian of the \eqn{(m, \omega)} profile. The model is linear in
+#' \eqn{A, B, C_1, C_2}, so their second derivatives vanish, \eqn{H} contributes
+#' nothing to the linear block, and what remains there is a crossproduct
+#' with a positive determinant. The sign is therefore decided entirely by
+#' curvature in the two nonlinear parameters: the \eqn{2 \times 2} block the
+#' function reports.
 #'
 #' @return An object of class `"lppls_curvature"`: a list with the full and
 #'   profile determinants, the profile Hessian and its eigenvalues, the active

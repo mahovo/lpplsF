@@ -61,10 +61,8 @@ speedup <- function(before, after) sprintf("%.1fx", before / after)
 ```
 
 ```{r data}
-spx <- read.csv(system.file("extdata", "SPX.csv", package = "lpplsF"))
-names(spx)[1] <- "Date"
-spx$logpris <- log(spx$spindx)
-df_spx  <- spx[11800:14727, ]
+## `spx` ships with the package: 2,928 daily closes, 2009-05-18..2020-12-31.
+df_spx  <- data.frame(Date = spx$date, logpris = log(spx$close))
 n_spx   <- nrow(df_spx) - 500          # 2428 calibration points
 y_spx   <- df_spx$logpris[seq_len(n_spx)]
 t_spx   <- seq_len(n_spx)

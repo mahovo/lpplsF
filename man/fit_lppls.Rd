@@ -26,7 +26,10 @@ fit_lppls(
   mp = FALSE,
   factr = 1e+07,
   fb = FALSE,
-  beta_method = c("crossprod", "qr", "chol", "symengine")
+  beta_method = c("crossprod", "qr", "chol", "symengine"),
+  dates = NULL,
+  style = c("simulated", "empirical"),
+  data_label = NULL
 )
 }
 \arguments{
@@ -193,6 +196,23 @@ same \code{beta_method}.
 
 See \code{misc/bench_beta.Rmd} for the timings and precision measurements behind
 these characterisations.}
+
+\item{dates}{\code{NULL} (default) or a \code{Date} vector the same length as
+\code{log_price}, strictly increasing, labelling the 1..n time index with
+calendar dates. Purely presentational: the calibration is index-based and
+its results do not depend on \code{dates}. When supplied, the attached fit plot
+is drawn on a calendar axis, and \code{print()} and \code{summary()} report
+\eqn{\hat{t}_c}{tc-hat}, the MPLE and every likelihood interval as dates as
+well as indices. A forecast critical time beyond the end of the series is
+extrapolated at the series' median spacing and flagged with \code{*}.}
+
+\item{style}{One of \code{"simulated"} (default) or \code{"empirical"}, passed to
+\code{\link[=fit_plot]{fit_plot()}} for the attached fit plot. \code{"empirical"} draws an observed
+series in grey and splits the fitted curve at \code{T2}, so the forecast beyond
+the calibration window is marked in red. See \code{\link[=fit_plot]{fit_plot()}}.}
+
+\item{data_label}{\code{NULL} (default) or a string naming the observed series in
+the attached fit plot's legend. The default follows \code{style}.}
 }
 \value{
 A list containing:

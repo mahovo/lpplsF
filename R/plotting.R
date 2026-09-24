@@ -864,7 +864,7 @@ create_trace_plot <- function(
 #' Draws the observed log-price series together with the fitted LPPLS curve, a
 #' vertical marker at the estimated critical time \eqn{\hat{t}_c}{tc-hat}, and---when the
 #' calibration end is supplied via `T2`---a marker at \eqn{T_2}. Colour and line
-#' type are merged into a single legend (`sim data` / `LPPLS fit` / `T2` /
+#' type are merged into a single legend (by default `sim data` / `LPPLS fit` / `T2` /
 #' `tc_hat`). This is the same builder [fit_lppls()] attaches as its `fit_plot`
 #' component (called there with `T2` set to the calibration-window end).
 #'
@@ -878,52 +878,190 @@ create_trace_plot <- function(
 #' @param T2 Numeric or `NULL`. The calibration-window end. When supplied, a
 #'   dashed marker is drawn there and added to the legend; when `NULL` (default)
 #'   only the \eqn{\hat{t}_c}{tc-hat} marker is shown.
+#' @param T1 Numeric or `NULL`. The calibration-window *start*. When supplied, a
+#'   dashed marker is drawn there and the fitted curve begins at `T1` rather than
+#'   at the first plotted observation. This is what a rolling calibration needs:
+#'   the data before `T1` is drawn but was never fitted, so a curve extending
+#'   back over it would misrepresent the fit. When `NULL` (default) the curve
+#'   starts at the first plotted point.
+#' @param dates `NULL` (default) or a `Date` vector the same length as
+#'   `log_price`, strictly increasing. When given, the x axis is drawn as a
+#'   calendar axis instead of the 1..n time index: the series, the fitted curve
+#'   and both markers are all mapped through it. A forecast
+#'   \eqn{\hat{t}_c}{tc-hat} lying past the end of the series is extrapolated at
+#'   the series' median spacing, so treat such a date as approximate.
+#' @param style One of `"simulated"` (default) or `"empirical"`, selecting what
+#'   the colours are asked to say.
+#'
+#'   `"simulated"` draws the series in the foreground colour and the fitted curve
+#'   as a single line, with the window markers in the legend. It suits a series
+#'   the caller generated, where the markers are part of the specification being
+#'   checked.
+#'
+#'   `"empirical"` draws the series in grey, the way an inactive control is: an
+#'   observed price series is given and cannot be otherwise. The fitted curve
+#'   splits at `T2` into the part supported by data and the part beyond it, and
+#'   only the latter is red, because past `T2` the curve is a forecast and the
+#'   colour is the warning. The markers stay out of the legend, leaving three
+#'   entries. The split needs points on both sides of `T2`; without it, or with
+#'   \eqn{\hat{t}_c}{tc-hat} inside the calibration window, a single line is
+#'   drawn instead.
+#' @param data_label `NULL` (default) or a string naming the observed series in
+#'   the legend. The default follows `style`: `"sim data"` for `"simulated"`,
+#'   `"data"` for `"empirical"`.
+#' @param linewidth Width of the series and fitted lines, passed to
+#'   [ggplot2::geom_line()]. Defaults to `0.5`, ggplot2's own default; a long
+#'   daily series usually reads better thinner.
 #'
 #' @return A `ggplot2` object.
 #'
 #' @seealso [fit_lppls()], [eval_lppls()]
 #'
 #' @examples
-#' \dontrun{
-#' fit <- fit_lppls(log_price = log_p, mode = "F2")
-#' # public convenience call: only the tc_hat marker
-#' fit_plot(fit$fit[[1]], seq_along(log_p), log_p)
-#' # with the calibration end marked, as fit_lppls() draws it internally
-#' fit_plot(fit$fit[[1]], seq_along(log_p), log_p, T2 = length(log_p) - 200)
-#' }
+#' set.seed(123)
+#' t <- 1:200
+#' log_p <- eval_lppls(t, 4, -0.015, 0.002, 0.001, 250, 0.5, 9) +
+#'   rnorm(200, 0, 0.01)
+#' est <- list(A = 4, B = -0.015, C1 = 0.002, C2 = 0.001,
+#'             tc = 250, m = 0.5, omega = 9)
+#'
+#' # default: the 1..n time index on the x axis
+#' fit_plot(est, t, log_p)
+#'
+#' # the same fit on a calendar axis
+#' fit_plot(est, t, log_p, dates = as.Date("2020-01-01") + t - 1)
+#'
+#' # an observed series: grey data, and the forecast past T2 marked in red
+#' fit_plot(est, t, log_p, T2 = 180, style = "empirical",
+#'          dates = as.Date("2020-01-01") + t - 1)
 #'
 #' @export
-fit_plot <- function(fit, time_ID, log_price, mode = 0, T2 = NULL) {
-  plot_data <- data.frame(ID = time_ID, log_p = log_price)
+fit_plot <- function(fit, time_ID, log_price, mode = 0, T2 = NULL, T1 = NULL,
+                     dates = NULL, style = c("simulated", "empirical"),
+                     data_label = NULL, linewidth = 0.5) {
+  style <- match.arg(style)
+  dates <- .check_dates(dates, length(log_price))
 
-  # tc_hat always; T2 only when the caller supplies it
-  marks <- data.frame(xintercept = fit$tc, series = "tc_hat")
-  if (!is.null(T2)) marks <- rbind(data.frame(xintercept = T2, series = "T2"), marks)
+  ## With `dates`, every x position is mapped through the calendar: the series,
+  ## the fitted curve and the vertical markers. `tc` may sit past the end of the
+  ## series -- a forecast critical time -- in which case its date is extrapolated
+  ## (see .ids_to_dates()).
+  xmap <- if (is.null(dates)) identity else function(i) .ids_to_dates(i, dates)
 
-  lvls <- c("sim data", "LPPLS fit", if (!is.null(T2)) "T2", "tc_hat")
-  cols <- c("sim data"="royalblue1", "LPPLS fit"="red", "T2"="green", "tc_hat"="red")
-  ltys <- c("sim data"="solid", "LPPLS fit"="solid", "T2"="dashed", "tc_hat"="dashed")
+  ## The two styles differ in what the colours are asked to say.
+  ##
+  ## "simulated": the series is one the caller generated, so it is drawn in the
+  ## foreground colour and the fitted curve is a single line. The window markers
+  ## join the legend, because on a synthetic example they are part of the
+  ## specification the reader is checking.
+  ##
+  ## "empirical": the series is given and cannot be otherwise, so it is drawn in
+  ## grey, the way an inactive control is. The fitted curve splits at T2 into the
+  ## part supported by data and the part beyond it, and only the latter is red:
+  ## past T2 the curve is a forecast, and the colour is the warning. The markers
+  ## stay out of the legend, which leaves three entries carrying the distinction
+  ## that matters.
+  if (is.null(data_label)) {
+    data_label <- if (style == "empirical") "data" else "sim data"
+  }
+  empirical <- identical(style, "empirical")
 
-  fit_t    <- seq.int(min(time_ID), floor(fit$tc) - 1L)
-  fit_line <- data.frame(
-    ID    = fit_t,
-    log_p = eval_lppls(fit_t, fit$A, fit$B, fit$C1, fit$C2,
+  plot_data <- data.frame(ID = xmap(time_ID), log_p = log_price)
+
+  ## The fitted curve spans the calibration window. Without T1 it starts at the
+  ## first plotted point, which is right for a fit calibrated from the beginning
+  ## of the series; with T1 it starts there instead, which is what a rolling
+  ## calibration needs -- the earlier data is shown but was never fitted.
+  fit_from <- if (is.null(T1)) min(time_ID) else T1
+  fit_to   <- floor(fit$tc) - 1L
+  curve_at <- function(ids) data.frame(
+    ID    = xmap(ids),
+    log_p = eval_lppls(ids, fit$A, fit$B, fit$C1, fit$C2,
                        fit$tc, fit$m, fit$omega, mode = mode)
   )
 
-  ggplot2::ggplot(plot_data, ggplot2::aes(ID, log_p)) +
-    ggplot2::geom_line(ggplot2::aes(color = "sim data", linetype = "sim data")) +
-    ggplot2::geom_line(
-      data = fit_line,
-      mapping = ggplot2::aes(color = "LPPLS fit", linetype = "LPPLS fit")
-    ) +
-    ggplot2::geom_vline(
+  ## Split the curve at T2 only when there is something on both sides of it.
+  ## Without T2, or with the whole curve inside the calibration window, there is
+  ## no forecast to distinguish and one line is the honest drawing.
+  split_at <- if (empirical && !is.null(T2) && T2 > fit_from && T2 < fit_to) T2 else NULL
+
+  fit_lab  <- if (empirical) "fit" else "LPPLS fit"
+  pred_lab <- "prediction"
+
+  lvls <- c(data_label, fit_lab,
+            if (!is.null(split_at)) pred_lab,
+            if (!empirical) c(if (!is.null(T1)) "T1", if (!is.null(T2)) "T2", "tc_hat"))
+  cols <- stats::setNames(
+    c(if (empirical) "darkgray" else "royalblue1",
+      if (empirical) "royalblue" else "red",
+      "red", "orange", "green", "red"),
+    c(data_label, fit_lab, pred_lab, "T1", "T2", "tc_hat"))
+  ltys <- stats::setNames(
+    c("solid", "solid", "solid", "dashed", "dashed", "dashed"),
+    c(data_label, fit_lab, pred_lab, "T1", "T2", "tc_hat"))
+
+  x_lab <- if (is.null(dates)) "Time Index" else "Date"
+
+  ## In the empirical style the markers are not in the legend, so every entry is
+  ## a solid line and mapping linetype would add a scale carrying no information.
+  ln_aes <- function(lab) {
+    if (empirical) ggplot2::aes(color = lab)
+    else ggplot2::aes(color = lab, linetype = lab)
+  }
+
+  p <- ggplot2::ggplot(plot_data, ggplot2::aes(ID, log_p)) +
+    ggplot2::geom_line(ln_aes(data_label), linewidth = linewidth)
+
+  if (is.null(split_at)) {
+    p <- p + ggplot2::geom_line(
+      data = curve_at(seq.int(fit_from, fit_to)),
+      mapping = ln_aes(fit_lab), linewidth = linewidth)
+  } else {
+    ## The segments share the point at T2, so the two lines meet without a gap.
+    p <- p +
+      ggplot2::geom_line(
+        data = curve_at(seq.int(fit_from, split_at)),
+        mapping = ln_aes(fit_lab), linewidth = linewidth) +
+      ggplot2::geom_line(
+        data = curve_at(seq.int(split_at, fit_to)),
+        mapping = ln_aes(pred_lab), linewidth = linewidth)
+  }
+
+  if (empirical) {
+    ## Markers as plain rules, outside the legend.
+    if (!is.null(T1)) {
+      p <- p + ggplot2::geom_vline(xintercept = xmap(T1), color = "orange",
+                                   linetype = "dashed")
+    }
+    if (!is.null(T2)) {
+      p <- p + ggplot2::geom_vline(xintercept = xmap(T2), color = "royalblue",
+                                   linetype = "dashed")
+    }
+    p <- p + ggplot2::geom_vline(xintercept = xmap(fit$tc), color = "red",
+                                 linetype = "dashed")
+  } else {
+    marks <- data.frame(xintercept = xmap(fit$tc), series = "tc_hat")
+    if (!is.null(T2)) {
+      marks <- rbind(data.frame(xintercept = xmap(T2), series = "T2"), marks)
+    }
+    if (!is.null(T1)) {
+      marks <- rbind(data.frame(xintercept = xmap(T1), series = "T1"), marks)
+    }
+    p <- p + ggplot2::geom_vline(
       data = marks,
-      mapping = ggplot2::aes(xintercept = xintercept, color = series, linetype = series),
-      inherit.aes = FALSE, key_glyph = "path") +
-    ggplot2::scale_color_manual(name = NULL, values = cols, breaks = lvls) +
-    ggplot2::scale_linetype_manual(name = NULL, values = ltys, breaks = lvls) +
-    ggplot2::labs(x = "Time Index", y = "Log Price") +
+      mapping = ggplot2::aes(xintercept = xintercept, color = series,
+                             linetype = series),
+      inherit.aes = FALSE, key_glyph = "path")
+  }
+
+  p <- p + ggplot2::scale_color_manual(name = NULL, values = cols, breaks = lvls)
+  if (!empirical) {
+    p <- p + ggplot2::scale_linetype_manual(name = NULL, values = ltys,
+                                            breaks = lvls)
+  }
+
+  p +
+    ggplot2::labs(x = x_lab, y = "Log Price") +
     ggplot2::theme_minimal() +
     overlay_legend_theme()
 }

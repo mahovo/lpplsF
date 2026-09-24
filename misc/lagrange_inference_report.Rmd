@@ -513,8 +513,7 @@ pb_regime <- param_boot(build("regime_argarch", 3630), cfg_syn)   # exposes the 
 
 ## The SPX empirical case (Experiment F) is bootstrapped here too, so Table E1 / Fig 5
 ## can present all three datasets together; its narrative lives in Experiment F.
-spx <- read.csv(system.file("extdata", "SPX.csv", package = "lpplsF")); names(spx)[1] <- "Date"
-spx$logpris <- log(spx$spindx); y_spx <- spx[11800:14727, "logpris"]
+y_spx <- log(spx$close)   # `spx` ships with the package; 2009-05-18..2020-12-31
 cfg_spx <- list(t1_max = 501, by = 25, hold_out = 500, fh = 500,
                 lo = c(0.1,6,-0.5,0.8), up = c(0.9,13,-1e-14,1e6))
 pb_spx  <- param_boot(y_spx, cfg_spx, B = 60)                     # empirical case; persist = 0.97
@@ -576,7 +575,7 @@ $T_1^\ast=76$. Does that decrease survive the valid test?
 ## set up in Experiment E, where the parametric bootstrap pb_spx runs. Here: the naive baselines.
 
 ## OLS + HAC on the observed rolling chi^2_np (rolling precomputed in misc/, ~44 min)
-roll_spx <- readRDS("../lagrange_rolling_e016b.rds")
+roll_spx <- readRDS("lpplsF_guide_data/lagrange_rolling_spx.rds")
 lag_spx  <- lppls_lagrange(roll_spx, p = 0); fit <- lag_spx$trend; b1 <- lag_spx$slope
 se_ols   <- summary(fit)$coefficients["T1","Std. Error"]
 p_ols    <- summary(fit)$coefficients["T1","Pr(>|t|)"]

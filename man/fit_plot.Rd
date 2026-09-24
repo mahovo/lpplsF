@@ -4,7 +4,18 @@
 \alias{fit_plot}
 \title{Plot a Fitted LPPLS Model}
 \usage{
-fit_plot(fit, time_ID, log_price, mode = 0, T2 = NULL)
+fit_plot(
+  fit,
+  time_ID,
+  log_price,
+  mode = 0,
+  T2 = NULL,
+  T1 = NULL,
+  dates = NULL,
+  style = c("simulated", "empirical"),
+  data_label = NULL,
+  linewidth = 0.5
+)
 }
 \arguments{
 \item{fit}{A named list of point estimates with elements \code{A}, \code{B}, \code{C1},
@@ -21,6 +32,45 @@ calibrates).}
 \item{T2}{Numeric or \code{NULL}. The calibration-window end. When supplied, a
 dashed marker is drawn there and added to the legend; when \code{NULL} (default)
 only the \eqn{\hat{t}_c}{tc-hat} marker is shown.}
+
+\item{T1}{Numeric or \code{NULL}. The calibration-window \emph{start}. When supplied, a
+dashed marker is drawn there and the fitted curve begins at \code{T1} rather than
+at the first plotted observation. This is what a rolling calibration needs:
+the data before \code{T1} is drawn but was never fitted, so a curve extending
+back over it would misrepresent the fit. When \code{NULL} (default) the curve
+starts at the first plotted point.}
+
+\item{dates}{\code{NULL} (default) or a \code{Date} vector the same length as
+\code{log_price}, strictly increasing. When given, the x axis is drawn as a
+calendar axis instead of the 1..n time index: the series, the fitted curve
+and both markers are all mapped through it. A forecast
+\eqn{\hat{t}_c}{tc-hat} lying past the end of the series is extrapolated at
+the series' median spacing, so treat such a date as approximate.}
+
+\item{style}{One of \code{"simulated"} (default) or \code{"empirical"}, selecting what
+the colours are asked to say.
+
+\code{"simulated"} draws the series in the foreground colour and the fitted curve
+as a single line, with the window markers in the legend. It suits a series
+the caller generated, where the markers are part of the specification being
+checked.
+
+\code{"empirical"} draws the series in grey, the way an inactive control is: an
+observed price series is given and cannot be otherwise. The fitted curve
+splits at \code{T2} into the part supported by data and the part beyond it, and
+only the latter is red, because past \code{T2} the curve is a forecast and the
+colour is the warning. The markers stay out of the legend, leaving three
+entries. The split needs points on both sides of \code{T2}; without it, or with
+\eqn{\hat{t}_c}{tc-hat} inside the calibration window, a single line is
+drawn instead.}
+
+\item{data_label}{\code{NULL} (default) or a string naming the observed series in
+the legend. The default follows \code{style}: \code{"sim data"} for \code{"simulated"},
+\code{"data"} for \code{"empirical"}.}
+
+\item{linewidth}{Width of the series and fitted lines, passed to
+\code{\link[ggplot2:geom_path]{ggplot2::geom_line()}}. Defaults to \code{0.5}, ggplot2's own default; a long
+daily series usually reads better thinner.}
 }
 \value{
 A \code{ggplot2} object.
@@ -29,18 +79,27 @@ A \code{ggplot2} object.
 Draws the observed log-price series together with the fitted LPPLS curve, a
 vertical marker at the estimated critical time \eqn{\hat{t}_c}{tc-hat}, and---when the
 calibration end is supplied via \code{T2}---a marker at \eqn{T_2}. Colour and line
-type are merged into a single legend (\verb{sim data} / \verb{LPPLS fit} / \code{T2} /
+type are merged into a single legend (by default \verb{sim data} / \verb{LPPLS fit} / \code{T2} /
 \code{tc_hat}). This is the same builder \code{\link[=fit_lppls]{fit_lppls()}} attaches as its \code{fit_plot}
 component (called there with \code{T2} set to the calibration-window end).
 }
 \examples{
-\dontrun{
-fit <- fit_lppls(log_price = log_p, mode = "F2")
-# public convenience call: only the tc_hat marker
-fit_plot(fit$fit[[1]], seq_along(log_p), log_p)
-# with the calibration end marked, as fit_lppls() draws it internally
-fit_plot(fit$fit[[1]], seq_along(log_p), log_p, T2 = length(log_p) - 200)
-}
+set.seed(123)
+t <- 1:200
+log_p <- eval_lppls(t, 4, -0.015, 0.002, 0.001, 250, 0.5, 9) +
+  rnorm(200, 0, 0.01)
+est <- list(A = 4, B = -0.015, C1 = 0.002, C2 = 0.001,
+            tc = 250, m = 0.5, omega = 9)
+
+# default: the 1..n time index on the x axis
+fit_plot(est, t, log_p)
+
+# the same fit on a calendar axis
+fit_plot(est, t, log_p, dates = as.Date("2020-01-01") + t - 1)
+
+# an observed series: grey data, and the forecast past T2 marked in red
+fit_plot(est, t, log_p, T2 = 180, style = "empirical",
+         dates = as.Date("2020-01-01") + t - 1)
 
 }
 \seealso{

@@ -18,18 +18,26 @@ profile determinants, the profile Hessian and its eigenvalues, the active
 bounds, and a \code{classification} of \code{"minimum"}, \code{"saddle"} or \code{"maximum"}.
 }
 \description{
-Tests whether the calibration sits at a genuine interior minimum. The
-modified profile likelihood assumes it does: its correction term uses
-\eqn{\det(X'X - H)}{det(X'X - H)}, the observed information, which is only guaranteed
-positive at an interior stationary point.
+Tests whether the calibration sits at a genuine interior minimum.
 }
 \details{
-By the Schur complement, \eqn{\det(X'X - H)}{det(X'X - H)} factorises into the determinant
-of the linear-parameter block (always positive) times the determinant of the
-2x2 Hessian of the \eqn{(m, \omega)} profile. So the sign of the full
-determinant is decided entirely by the curvature in the two nonlinear
-parameters, and that 2x2 block is what this function reports. A saddle there
-is the signature of an estimate resting on an optimisation bound.
+The modified profile likelihood assumes the estimate is an interior minimum:
+its correction uses \eqn{\det(X'X - H)}, the observed information, which is
+only guaranteed positive at an interior stationary point. \eqn{X} holds the
+model's first derivatives with respect to the six parameters, and \eqn{H} its
+second derivatives, each weighted by the residual at that observation and
+summed (thesis eq. 55). \eqn{H} is thus a residual-weighted curvature term
+rather than a Hessian in its own right. \code{lppls_curvature()} tests the
+determinant directly, and factorises it to show where the sign comes from.
+
+By the Schur complement, \eqn{\det(X'X - H)} factorises into the determinant
+of the linear-parameter block times the determinant of the \eqn{2 \times 2}
+Hessian of the \eqn{(m, \omega)} profile. The model is linear in
+\eqn{A, B, C_1, C_2}, so their second derivatives vanish, \eqn{H} contributes
+nothing to the linear block, and what remains there is a crossproduct
+with a positive determinant. The sign is therefore decided entirely by
+curvature in the two nonlinear parameters: the \eqn{2 \times 2} block the
+function reports.
 }
 \seealso{
 \code{\link[=fit_lppls]{fit_lppls()}}, \code{\link[=print.lppls_fit]{print.lppls_fit()}}

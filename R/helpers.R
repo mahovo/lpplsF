@@ -390,3 +390,58 @@ validate_params <- function(params, lower, upper) {
     omega_valid = omega_valid
   )
 }
+
+
+## Calendar dates for positions on the calibration's time index ----------------
+##
+## `ids` are positions on the 1..n index the calibration runs on. Two things make
+## this more than a lookup: a Brent-refined `tc` is fractional, and a forecast
+## critical time routinely lies *past* the end of the observed series, which is
+## the whole point of the model. Positions inside the series index `dates`
+## directly; positions beyond it are extrapolated at the series' median spacing,
+## which assumes the calendar keeps its shape and is therefore an approximation --
+## `.ids_beyond()` tells callers which entries to mark as such.
+##
+## Returns a Date vector of the same length as `ids`, NA where no date applies.
+.ids_to_dates <- function(ids, dates) {
+  if (is.null(dates) || is.null(ids) || !length(ids)) return(NULL)
+  dates <- as.Date(dates)
+  n     <- length(dates)
+  i     <- round(as.numeric(ids))
+  out   <- rep(as.Date(NA), length(i))
+
+  inside <- !is.na(i) & i >= 1L & i <= n
+  out[inside] <- dates[i[inside]]
+
+  beyond <- !is.na(i) & i > n
+  if (any(beyond) && n >= 2L) {
+    step <- stats::median(diff(as.numeric(dates)))
+    out[beyond] <- dates[n] + round((i[beyond] - n) * step)
+  }
+  out
+}
+
+## Which of `ids` fall past the end of `dates` (i.e. whose dates are extrapolated).
+.ids_beyond <- function(ids, dates) {
+  if (is.null(dates) || is.null(ids) || !length(ids)) return(logical(0))
+  i <- round(as.numeric(ids))
+  !is.na(i) & i > length(dates)
+}
+
+## Validate a user-supplied `dates` argument against the series it labels.
+## Returns the coerced Date vector, or NULL when no dates were given.
+.check_dates <- function(dates, n_expected, arg = "dates") {
+  if (is.null(dates)) return(NULL)
+  d <- tryCatch(as.Date(dates), error = function(e) {
+    stop("`", arg, "` must be coercible to Date: ", conditionMessage(e), call. = FALSE)
+  })
+  if (length(d) != n_expected) {
+    stop("`", arg, "` has length ", length(d), " but the series has length ",
+         n_expected, "; they must match.", call. = FALSE)
+  }
+  if (anyNA(d)) stop("`", arg, "` contains NA.", call. = FALSE)
+  if (is.unsorted(d, strictly = TRUE)) {
+    stop("`", arg, "` must be strictly increasing.", call. = FALSE)
+  }
+  d
+}
