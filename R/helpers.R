@@ -90,7 +90,9 @@ sum_yh <- function(log_p, t, tc, m, omega) {
 #' \deqn{D = \frac{m |B|}{\omega \sqrt{C_1^2 + C_2^2}}}
 #'
 #' Higher values indicate stronger damping (less pronounced oscillations).
-#' Filimonov (2017) suggests D >= 0.8 for valid bubble detection.
+#' A non-negative crash hazard rate requires D > 1 (Graf v. Bothmer & Meister,
+#' 2003). Filimonov, Demos & Sornette (2017) relax this to about 0.8, because a
+#' real crash unfolds over weeks rather than in one immediate jump.
 #'
 #' @keywords internal
 #' @noRd

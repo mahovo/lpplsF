@@ -44,8 +44,12 @@ points after \code{T2}.}
 
 \item{lower}{Numeric vector of length 4, lower bounds for
 \code{c(m, omega, B, D)}. Default: \code{c(0.1, 6, -1e14, 0.8)}.\cr
-Filimonov 2017:\cr
-\eqn{B < 0}, \eqn{D \geq 0.8}, \eqn{0.1 \leq m \leq 0.9}, \eqn{6 \leq \omega \leq 13}.\cr
+The defaults of \code{lower} and \code{upper} follow the constraints of Filimonov,
+Demos & Sornette (2017): \eqn{B < 0}, \eqn{D \geq 0.8},
+\eqn{0.1 \leq m \leq 0.9} and \eqn{6 \leq \omega \leq 13}, which they give
+as approximate. The damping bound relaxes the theoretical \eqn{D > 1}, which
+keeps the crash hazard rate non-negative (Graf v. Bothmer & Meister, 2003),
+because a real crash unfolds over weeks rather than in one immediate jump.\cr
 NOTE: For \code{trace_plot} mode 2 and 3 (\code{bm} and \code{bo}), lower for \code{B} should
 be set to the desired minimum value of the B-axis in the contour
 plotting.\cr
@@ -428,6 +432,10 @@ of the log-periodic power law model. Physica A, 392(17), 3698-3707.
 Filimonov, V., Demos, G., & Sornette, D. (2017). Modified profile likelihood
 inference and interval forecast of the burst of financial bubbles.
 Quantitative Finance, 17(8), 1167-1186.
+
+Graf v. Bothmer, H.-C., & Meister, C. (2003). Predicting critical crashes? A
+new restriction for the free variables. Physica A, 320, 539-547.
+\doi{10.1016/S0378-4371(02)01535-2}
 }
 \seealso{
 \code{\link[=print.lppls_fit]{print.lppls_fit()}}, \code{\link[=summary.lppls_fit]{summary.lppls_fit()}}, \code{\link[=plot.lppls_fit]{plot.lppls_fit()}} and

@@ -26,6 +26,9 @@ by the likelihood or merely by the edge of that grid.
 Findings that undermine the fit are repeated as a \code{Diagnostics} block, so a
 degenerate calibration announces itself rather than having to be inferred from
 the numbers.
+
+The report is wrapped at \code{getOption("width")}. A wrapped line continues
+indented under the value it belongs to, so the labels stay in their column.
 }
 \seealso{
 \code{\link[=fit_lppls]{fit_lppls()}}, \code{\link[=summary.lppls_fit]{summary.lppls_fit()}}, \code{\link[=lppls_curvature]{lppls_curvature()}}

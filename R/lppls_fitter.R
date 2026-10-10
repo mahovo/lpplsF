@@ -25,8 +25,12 @@
 #'   points after `T2`.
 #' @param lower Numeric vector of length 4, lower bounds for
 #'   `c(m, omega, B, D)`. Default: `c(0.1, 6, -1e14, 0.8)`.\cr
-#'   Filimonov 2017:\cr
-#'   \eqn{B < 0}, \eqn{D \geq 0.8}, \eqn{0.1 \leq m \leq 0.9}, \eqn{6 \leq \omega \leq 13}.\cr
+#'   The defaults of `lower` and `upper` follow the constraints of Filimonov,
+#'   Demos & Sornette (2017): \eqn{B < 0}, \eqn{D \geq 0.8},
+#'   \eqn{0.1 \leq m \leq 0.9} and \eqn{6 \leq \omega \leq 13}, which they give
+#'   as approximate. The damping bound relaxes the theoretical \eqn{D > 1}, which
+#'   keeps the crash hazard rate non-negative (Graf v. Bothmer & Meister, 2003),
+#'   because a real crash unfolds over weeks rather than in one immediate jump.\cr
 #'   NOTE: For `trace_plot` mode 2 and 3 (`bm` and `bo`), lower for `B` should
 #'   be set to the desired minimum value of the B-axis in the contour
 #'   plotting.\cr
@@ -356,6 +360,10 @@
 #' Filimonov, V., Demos, G., & Sornette, D. (2017). Modified profile likelihood
 #' inference and interval forecast of the burst of financial bubbles.
 #' Quantitative Finance, 17(8), 1167-1186.
+#'
+#' Graf v. Bothmer, H.-C., & Meister, C. (2003). Predicting critical crashes? A
+#' new restriction for the free variables. Physica A, 320, 539-547.
+#' \doi{10.1016/S0378-4371(02)01535-2}
 #'
 #' @examples
 #' \dontrun{
@@ -1241,6 +1249,9 @@ fit_lppls <- function(
 #' degenerate calibration announces itself rather than having to be inferred from
 #' the numbers.
 #'
+#' The report is wrapped at `getOption("width")`. A wrapped line continues
+#' indented under the value it belongs to, so the labels stay in their column.
+#'
 #' @param x An object of class `"lppls_fit"` from [fit_lppls()].
 #' @param ... Ignored.
 #'
@@ -1252,6 +1263,52 @@ fit_lppls <- function(
 print.lppls_fit <- function(x, ...) {
   .print_fit_diagnostics(.fit_diagnostics(x))
   invisible(x)
+}
+
+
+#' Write one line of a printed report, wrapped to the console width
+#'
+#' `lead` opens the line: a label such as `"  Basins:    "`, or `"    ! "` for a
+#' diagnostic flag. Continuation lines are indented to the width of `lead`, so a
+#' wrapped value stays in its column. The reports separate fields with runs of
+#' two or more spaces, and a line breaks between fields where it can. A field too
+#' wide for a line of its own breaks between words, and a dash standing between
+#' two words stays with the word before it, so no continuation opens with one.
+#'
+#' A line that fits is printed exactly as it was built.
+#'
+#' @param lead Character, the opening of the line, printed once.
+#' @param body Character, the rest of the line.
+#' @param width Integer, the width to wrap at.
+#'
+#' @keywords internal
+#' @noRd
+.cat_wrapped <- function(lead, body, width = getOption("width")) {
+  w    <- function(s) nchar(s, type = "width")
+  room <- max(width - w(lead), 20L)   # never squeeze the text below 20 columns
+
+  ## One token per field, each keeping the spacing in front of it.
+  toks <- regmatches(body, gregexpr("\\s*\\S+(?: \\S+)*", body, perl = TRUE))[[1]]
+  toks <- unlist(lapply(toks, function(tk) {
+    if (w(trimws(tk, "left")) <= room) return(tk)
+    regmatches(tk, gregexpr("\\s*\\S+(?: -(?=\\s|$))?", tk, perl = TRUE))[[1]]
+  }))
+
+  lines <- character(0)
+  cur   <- ""
+  for (tk in toks) {
+    if (nzchar(cur) && w(cur) + w(tk) > room) {
+      lines <- c(lines, cur)
+      cur   <- trimws(tk, "left")
+    } else {
+      cur <- if (nzchar(cur)) paste0(cur, tk) else trimws(tk, "left")
+    }
+  }
+  lines <- c(lines, cur)
+
+  hang <- strrep(" ", w(lead))
+  cat(paste0(c(lead, rep(hang, length(lines) - 1L)), lines, "\n"), sep = "")
+  invisible(NULL)
 }
 
 
@@ -1280,47 +1337,52 @@ print.lppls_fit <- function(x, ...) {
   }
 
   cat(sprintf("LPPLS calibration (mode = %s)\n", d$mode))
-  cat(sprintf("  Window:    n = %s   fh = %s   hold_out = %s   num_searches = %s\n",
-              d$n, d$fh, d$hold_out, d$num_searches))
+  .cat_wrapped("  Window:    ",
+               sprintf("n = %s   fh = %s   hold_out = %s   num_searches = %s",
+                       d$n, d$fh, d$hold_out, d$num_searches))
   tc_date <- as_date(e$tc)
-  cat(sprintf("  Estimate:  tc = %.2f%s   m = %.4f   omega = %.4f   D = %.3f   SSE = %.6g\n",
-              e$tc,
-              if (is.null(tc_date)) "" else sprintf(" (%s)", tc_date),
-              e$m, e$omega, e$D, e$value))
+  .cat_wrapped("  Estimate:  ",
+               sprintf("tc = %.2f%s   m = %.4f   omega = %.4f   D = %.3f   SSE = %.6g",
+                       e$tc,
+                       if (is.null(tc_date)) "" else sprintf(" (%s)", tc_date),
+                       e$m, e$omega, e$D, e$value))
 
   if (is.null(d$boundary_counts)) {
-    cat("  Bounds:    not recorded for this fit\n")
+    .cat_wrapped("  Bounds:    ", "not recorded for this fit")
   } else {
-    cat(sprintf("  Bounds:    estimate %s;  fits at a bound: m %d/%d, omega %d/%d\n",
-                if (length(d$pinned)) {
-                  paste0(paste(d$pinned, collapse = " and "), " at a bound")
-                } else {
-                  "interior"
-                },
-                d$boundary_counts[["m"]], d$n_fits,
-                d$boundary_counts[["omega"]], d$n_fits))
+    .cat_wrapped("  Bounds:    ",
+                 sprintf("estimate %s;  fits at a bound: m %d/%d, omega %d/%d",
+                         if (length(d$pinned)) {
+                           paste0(paste(d$pinned, collapse = " and "), " at a bound")
+                         } else {
+                           "interior"
+                         },
+                         d$boundary_counts[["m"]], d$n_fits,
+                         d$boundary_counts[["omega"]], d$n_fits))
   }
 
   if (!is.null(d$basin_gap)) {
     if (isTRUE(d$split)) {
-      cat(sprintf(
-        "  Basins:    SSE %.6g..%.6g;  largest gap %.2f of the spread splits off %d/%d %s (%.0f%%)\n",
+      .cat_wrapped("  Basins:    ", sprintf(
+        "SSE %.6g..%.6g;  largest gap %.2f of the spread splits off %d/%d %s (%.0f%%)",
         d$best_sse, d$worst_sse, d$basin_gap, d$n_inferior, d$n_fits, unit,
         100 * d$frac_inferior))
     } else {
-      cat(sprintf(
-        "  Basins:    SSE %.6g..%.6g;  no distinct inferior cluster (largest gap %.2f of the spread)\n",
+      .cat_wrapped("  Basins:    ", sprintf(
+        "SSE %.6g..%.6g;  no distinct inferior cluster (largest gap %.2f of the spread)",
         d$best_sse, d$worst_sse, d$basin_gap))
     }
   }
 
-  cat(sprintf("  Filters:   B out of range %d   D out of range %d\n", d$oor_B, d$oor_D))
+  .cat_wrapped("  Filters:   ",
+               sprintf("B out of range %d   D out of range %d", d$oor_B, d$oor_D))
 
   if (!is.null(d$mpl)) {
     mple_date <- as_date(d$mpl$mple)
-    cat(sprintf("  MPL:       defined at %d/%d tc   MPLE = %s%s\n",
-                d$mpl$defined, d$mpl$total, d$mpl$mple,
-                if (is.null(mple_date)) "" else sprintf(" (%s)", mple_date)))
+    .cat_wrapped("  MPL:       ",
+                 sprintf("defined at %d/%d tc   MPLE = %s%s",
+                         d$mpl$defined, d$mpl$total, d$mpl$mple,
+                         if (is.null(mple_date)) "" else sprintf(" (%s)", mple_date)))
     if (length(d$mpl$li)) {
       lab <- if (length(d$mpl$cutoff) == length(d$mpl$li)) {
         sprintf("LI(%.2f)", d$mpl$cutoff)
@@ -1328,20 +1390,20 @@ print.lppls_fit <- function(x, ...) {
         sprintf("LI[%d]", seq_along(d$mpl$li))
       }
       if (is.null(dts)) {
-        ## No calendar: keep the compact one-line form.
-        cat("             ",
-            paste(mapply(function(l, li) sprintf("%s [%s, %s]", l, li[1], li[2]),
-                         lab, d$mpl$li),
-                  collapse = "   "),
-            "\n", sep = "")
+        ## No calendar: the compact form, on one line when it fits.
+        .cat_wrapped("             ",
+                     paste(mapply(function(l, li) sprintf("%s [%s, %s]", l, li[1], li[2]),
+                                  lab, d$mpl$li),
+                           collapse = "   "))
       } else {
         ## With a calendar each interval gets its own line, indices then dates --
         ## three intervals with both representations do not fit on one line.
         for (i in seq_along(d$mpl$li)) {
           li <- d$mpl$li[[i]]
           dd <- as_date(li)
-          cat(sprintf("             %s [%s, %s]   (%s .. %s)\n",
-                      lab[i], li[1], li[2], dd[1], dd[2]))
+          .cat_wrapped("             ",
+                       sprintf("%s [%s, %s]   (%s .. %s)",
+                               lab[i], li[1], li[2], dd[1], dd[2]))
         }
       }
     }
@@ -1350,8 +1412,8 @@ print.lppls_fit <- function(x, ...) {
   ## Outside the MPL block on purpose: a forecast tc can be extrapolated even
   ## when no modified profile likelihood was computed.
   if (isTRUE(extrap)) {
-    cat("             * date extrapolated past the end of the series,",
-        "at its median spacing\n")
+    .cat_wrapped("             * ",
+                 "date extrapolated past the end of the series, at its median spacing")
   }
 
   flags <- character(0)
@@ -1398,9 +1460,10 @@ print.lppls_fit <- function(x, ...) {
   }
 
   if (!is.null(curv)) {
-    cat(sprintf("  Curvature: %s at the estimate  (det(X'X - H) = %+.3e;  profile Hessian eigenvalues %s)\n",
-                curv$classification, curv$det_full,
-                paste(sprintf("%+.3e", curv$eigen_profile), collapse = ", ")))
+    .cat_wrapped("  Curvature: ",
+                 sprintf("%s at the estimate  (det(X'X - H) = %+.3e;  profile Hessian eigenvalues %s)",
+                         curv$classification, curv$det_full,
+                         paste(sprintf("%+.3e", curv$eigen_profile), collapse = ", ")))
     if (!identical(curv$classification, "positive definite")) {
       flags <- c(flags, sprintf(
         "the profiled (m, omega) Hessian is %s, so det(X'X - H) <= 0 and the MPL is undefined at the estimate%s",
@@ -1411,7 +1474,7 @@ print.lppls_fit <- function(x, ...) {
 
   if (length(flags)) {
     cat("\n  Diagnostics:\n")
-    cat(paste0("    ! ", flags, collapse = "\n"), "\n", sep = "")
+    for (flag in flags) .cat_wrapped("    ! ", flag)
   }
 
   invisible(d)
@@ -1605,22 +1668,27 @@ lppls_curvature <- function(x, log_price = NULL) {
 #' @export
 print.lppls_curvature <- function(x, ...) {
   cat("LPPLS curvature at the estimate\n")
-  cat(sprintf("  tc = %.2f   n = %d\n", x$tc, x$n))
-  cat(sprintf("  det(X'X - H)          = %+.4e   (MPL is defined only where this is > 0)\n",
-              x$det_full))
-  cat(sprintf("  det(linear block)     = %+.4e   (positive by construction)\n", x$det_linear))
-  cat(sprintf("  det(profile Hessian)  = %+.4e   (sets the sign above)\n", x$det_profile))
-  cat(sprintf("  eigenvalues (m, omega): %s\n",
-              paste(sprintf("%+.4e", x$eigen_profile), collapse = "   ")))
-  cat(sprintf("  => profile Hessian is %s%s\n", x$classification,
-              switch(x$classification,
-                     `positive definite` = ": the curvature condition behind the MPL holds",
-                     `saddle`            = ": not a minimum in (m, omega), so det(X'X - H) < 0",
-                     `negative definite` = ": a maximum in (m, omega)")))
+  .cat_wrapped("  ", sprintf("tc = %.2f   n = %d", x$tc, x$n))
+  .cat_wrapped("  det(X'X - H)          = ",
+               sprintf("%+.4e   (MPL is defined only where this is > 0)", x$det_full))
+  .cat_wrapped("  det(linear block)     = ",
+               sprintf("%+.4e   (positive by construction)", x$det_linear))
+  .cat_wrapped("  det(profile Hessian)  = ",
+               sprintf("%+.4e   (sets the sign above)", x$det_profile))
+  .cat_wrapped("  eigenvalues (m, omega): ",
+               paste(sprintf("%+.4e", x$eigen_profile), collapse = "   "))
+  .cat_wrapped("  => ",
+               sprintf("profile Hessian is %s%s", x$classification,
+                       switch(x$classification,
+                              `positive definite` = ": the curvature condition behind the MPL holds",
+                              `saddle`            = ": not a minimum in (m, omega), so det(X'X - H) < 0",
+                              `negative definite` = ": a maximum in (m, omega)")))
   if (length(x$pinned)) {
-    cat(sprintf("  note: %s sits at an optimisation bound, so the estimate is a constrained one -\n",
-                paste(x$pinned, collapse = " and ")))
-    cat("        the gradient need not vanish there, whatever the curvature says\n")
+    .cat_wrapped("  note: ",
+                 sprintf(paste("%s sits at an optimisation bound, so the estimate is a",
+                               "constrained one - the gradient need not vanish there,",
+                               "whatever the curvature says"),
+                         paste(x$pinned, collapse = " and ")))
   }
   invisible(x)
 }
@@ -1659,12 +1727,13 @@ print.summary.lppls_fit <- function(x, ...) {
   if (!is.null(d$mpl$li_check)) {
     cat("\n  Likelihood intervals:\n")
     for (k in d$mpl$li_check) {
-      cat(sprintf("    LI(%.2f): %d grid points above the cutoff, interval spans %s%s\n",
-                  k$cutoff, k$n_in,
-                  if (is.na(k$span)) "-" else as.character(k$span),
-                  if (isTRUE(k$contiguous)) "  (contiguous)"
-                  else if (is.na(k$contiguous)) ""
-                  else sprintf("  (bridges %d points below the cutoff)", k$bridged)))
+      .cat_wrapped(sprintf("    LI(%.2f): ", k$cutoff),
+                   sprintf("%d grid points above the cutoff, interval spans %s%s",
+                           k$n_in,
+                           if (is.na(k$span)) "-" else as.character(k$span),
+                           if (isTRUE(k$contiguous)) "  (contiguous)"
+                           else if (is.na(k$contiguous)) ""
+                           else sprintf("  (bridges %d points below the cutoff)", k$bridged)))
     }
   }
   invisible(x)

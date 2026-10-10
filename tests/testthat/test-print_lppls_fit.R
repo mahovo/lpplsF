@@ -25,6 +25,15 @@ pinned_fit <- function() {
             mode = "F2")
 }
 
+## Printed output at a given console width, and the output joined into one
+## whitespace-normalised string, for phrases that wrapping may split.
+print_at <- function(x, width) {
+  op <- options(width = width)
+  on.exit(options(op))
+  capture.output(print(x))
+}
+flat_output <- function(out) gsub("\\s+", " ", paste(out, collapse = " "))
+
 
 test_that("fit_lppls returns a classed object carrying its own settings", {
   f <- clean_fit()
@@ -248,7 +257,8 @@ test_that("F1 fits describe their rows as restarts, not conditional fits", {
   expect_identical(.fit_diagnostics(f)$mode, "F1")
   out <- capture.output(print(f))
   expect_true(any(grepl("mode = F1", out)))
-  expect_false(any(grepl("conditional fits", out)))
+  ## Joined first: a wrapped line could split the phrase across two lines.
+  expect_false(grepl("conditional fits", flat_output(out), fixed = TRUE))
 })
 
 
@@ -267,4 +277,59 @@ test_that("objects predating fit_args degrade instead of failing", {
   out <- capture.output(print(f))
   expect_true(any(grepl("Bounds:.*not recorded", out)))
   expect_true(any(grepl("Basins:", out)))
+})
+
+
+## ---- Wrapping at the console width -------------------------------------------
+
+test_that(".cat_wrapped prints a line that fits exactly as it was built", {
+  body <- "n = 900   fh = 150   hold_out = 100   num_searches = 1"
+  expect_identical(capture.output(.cat_wrapped("  Window:    ", body, width = 80)),
+                   paste0("  Window:    ", body))
+})
+
+
+test_that(".cat_wrapped breaks between fields and hangs the rest under the value", {
+  out <- capture.output(.cat_wrapped(
+    "  Estimate:  ",
+    "tc = 2717.01 (2020-03-03)   m = 0.9000   omega = 6.1596   D = 1.545   SSE = 5.28678",
+    width = 80))
+  expect_identical(out, c(
+    "  Estimate:  tc = 2717.01 (2020-03-03)   m = 0.9000   omega = 6.1596   D = 1.545",
+    "             SSE = 5.28678"))
+})
+
+
+test_that(".cat_wrapped splits a long field into words, keeping a dash with its word", {
+  flag <- paste("394 of 500 conditional fits (79%) sit in a distinct inferior basin",
+                "(SSE >= 7.99365 against a best of 5.28678) - raise num_searches")
+  out  <- capture.output(.cat_wrapped("    ! ", flag, width = 60))
+  expect_gt(length(out), 1)
+  expect_true(all(nchar(out) <= 60))
+  expect_match(out[1], "^    ! 394 of 500")
+  expect_true(all(grepl("^      \\S", out[-1])))   # continuations hang under the text
+  ## Nothing lost or reordered: the lines read back as the flag.
+  expect_identical(trimws(flat_output(c(sub("^    ! ", "", out[1]), out[-1]))), flag)
+
+  ## A break falling just after " -" takes the dash's word down with it, so no
+  ## line opens with a dash.
+  out <- capture.output(.cat_wrapped("", "one two three four five sixx - seven eight",
+                                     width = 29))
+  expect_identical(out, c("one two three four five", "sixx - seven eight"))
+})
+
+
+test_that("print() wraps every line at the console width and loses nothing", {
+  f <- pinned_fit()
+  n <- nrow(f$fit[[2]])
+  f$fit[[2]]$value <- c(1, 1.01, 1.02, rep(c(10, 10.01), length.out = n - 3))
+
+  wide   <- print_at(f, 10000)
+  narrow <- print_at(f, 50)
+  expect_true(all(nchar(narrow) <= 50))
+  expect_gt(length(narrow), length(wide))              # it did wrap
+  expect_identical(flat_output(narrow), flat_output(wide))
+  ## Continuations are indented, so each label still opens a line of its own.
+  labels <- function(out) sub(":.*", ":", grep("^  [A-Z][A-Za-z]+:", out, value = TRUE))
+  expect_identical(labels(narrow), labels(wide))
 })

@@ -12,6 +12,15 @@ mpl_fit <- function(...) {
             mode = "MPL", mpl_cutoff = c(0.05, 0.5), ...)
 }
 
+## Printed output at a given console width, and the output joined into one
+## whitespace-normalised string, for phrases that wrapping may split.
+print_at <- function(x, width) {
+  op <- options(width = width)
+  on.exit(options(op))
+  capture.output(print(x))
+}
+flat_output <- function(out) gsub("\\s+", " ", paste(out, collapse = " "))
+
 
 test_that("the fit carries its input series", {
   f <- mpl_fit()
@@ -36,7 +45,10 @@ test_that("a contiguous interval is reported as contiguous and raises no flag", 
   k <- .fit_diagnostics(f)$mpl$li_check
   expect_true(all(vapply(k, function(z) isTRUE(z$contiguous), logical(1))))
   expect_true(all(vapply(k, function(z) z$bridged == 0L, logical(1))))
-  expect_false(any(grepl("range\\(\\) bridges", capture.output(print(f)))))
+  ## Matched on the joined report: print() wraps at the console width, so a
+  ## flag's phrase can span two lines, and a per-line match would miss it.
+  expect_false(grepl("range() bridges", flat_output(capture.output(print(f))),
+                     fixed = TRUE))
 })
 
 
@@ -151,6 +163,17 @@ test_that("summary carries the diagnostics as values plus the curvature", {
   expect_true(any(grepl("Curvature:", out)))
   expect_true(any(grepl("Likelihood intervals:", out)))
   expect_true(any(grepl("LI\\(0.05\\):", out)))
+})
+
+
+test_that("the summary and curvature reports wrap at the console width", {
+  f <- mpl_fit()
+  for (obj in list(summary(f), lppls_curvature(f))) {
+    narrow <- print_at(obj, 50)
+    expect_true(all(nchar(narrow) <= 50))
+    ## Wrapping only moves text onto continuation lines; it loses nothing.
+    expect_identical(flat_output(narrow), flat_output(print_at(obj, 10000)))
+  }
 })
 
 

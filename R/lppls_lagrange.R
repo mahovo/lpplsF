@@ -48,9 +48,9 @@
 #'   }
 #'
 #' @references
-#' Demos, G., & Sornette, D. (2019). Birth or burst of financial bubbles:
-#' which one is easier to diagnose? Quantitative Finance, 17(5), 657-675.
-#' (arXiv:1707.07162)
+#' Demos, G., & Sornette, D. (2019). Comparing nested data sets and objectively
+#' determining financial bubbles' inceptions. Physica A, 524, 661-675.
+#' \doi{10.1016/j.physa.2019.04.050}
 #'
 #' @seealso [lppls_rolling()], [chi_sq_np_plot()], [chi_sq_lambda_plot()]
 #'
