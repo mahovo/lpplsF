@@ -23,7 +23,7 @@ Numeric scalar, the sum of squared errors.
 \description{
 Computes the residual sum of squares between observed log-prices and the
 LPPLS model evaluated at a given parameter set. This is the objective the
-calibration minimizes and the quantity \code{\link[=contour_plot_sse]{contour_plot_sse()}} scans over a
+calibration minimizes and the quantity \code{\link[=sse_contour_plot]{sse_contour_plot()}} scans over a
 parameter grid.
 }
 \details{
@@ -56,5 +56,5 @@ SSE(par2, log_p, t, mode = 2)
 
 }
 \seealso{
-\code{\link[=eval_lppls]{eval_lppls()}}, \code{\link[=contour_plot_sse]{contour_plot_sse()}}
+\code{\link[=eval_lppls]{eval_lppls()}}, \code{\link[=sse_contour_plot]{sse_contour_plot()}}
 }

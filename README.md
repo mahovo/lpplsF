@@ -88,7 +88,7 @@ The damping coefficient `D = m|B| / (ω√(C1² + C2²))` measures the strength 
 | `eval_lppls()` | Compute LPPLS model values |
 | `SSE()` | Compute sum of squared errors |
 | `fit_plot()` | Generate fit visualization |
-| `contour_plot_sse()` | Generate SSE contour plots |
+| `sse_contour_plot()` | Generate SSE contour plots |
 
 ## Requirements
 

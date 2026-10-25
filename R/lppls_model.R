@@ -144,7 +144,7 @@ eval_lppls <- function(
 #' `core` are the seven parameters eval_lppls() has no default for (so a caller
 #' must supply them); `higher` are the four higher-order parameters eval_lppls()
 #' defaults (T1 = 500, T2 = 1990, omega2 = 0, omega3 = 0) and that only modes 2-3
-#' use. Consumed by SSE() and contour_plot_sse() to validate `par` and to forward
+#' use. Consumed by SSE() and sse_contour_plot() to validate `par` and to forward
 #' the higher-order parameters when present.
 #'
 #' @keywords internal
@@ -181,7 +181,7 @@ eval_lppls <- function(
 #' parameters carried in `par` and returns the residual sum of squares.
 #' Every eval_lppls() parameter present in `par` -- including T1, T2,
 #' omega2, omega3 -- is forwarded by name; any absent one falls back
-#' to eval_lppls()'s default. Called once per grid cell by contour_plot_sse()
+#' to eval_lppls()'s default. Called once per grid cell by sse_contour_plot()
 #' (which validates up front) and by the validating wrapper SSE(), so it
 #' performs no input checking itself.
 #'
@@ -210,7 +210,7 @@ eval_lppls <- function(
 #'
 #' Computes the residual sum of squares between observed log-prices and the
 #' LPPLS model evaluated at a given parameter set. This is the objective the
-#' calibration minimizes and the quantity [contour_plot_sse()] scans over a
+#' calibration minimizes and the quantity [sse_contour_plot()] scans over a
 #' parameter grid.
 #'
 #' @details
@@ -238,7 +238,7 @@ eval_lppls <- function(
 #'
 #' @return Numeric scalar, the sum of squared errors.
 #'
-#' @seealso [eval_lppls()], [contour_plot_sse()]
+#' @seealso [eval_lppls()], [sse_contour_plot()]
 #'
 #' @examples
 #' t <- 1:100

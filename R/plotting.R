@@ -1091,13 +1091,13 @@ fit_plot <- function(fit, time_ID, log_price, mode = 0, T2 = NULL, T1 = NULL,
 #' # Create contour plot for m vs omega
 #' par <- list(tc = 250, A = 4, B = -0.015, C1 = 0.002, C2 = 0.001)
 #' vars <- list(x = "m", y = "omega")
-#' result <- contour_plot_sse(log_p, t, par, vars,
+#' result <- sse_contour_plot(log_p, t, par, vars,
 #'                            lower = c(0.1, 6), upper = c(0.9, 13))
 #' print(result$contour_plot)
 #' }
 #'
 #' @export
-contour_plot_sse <- function(
+sse_contour_plot <- function(
     log_p,
     t,
     par,

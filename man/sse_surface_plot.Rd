@@ -49,7 +49,7 @@ For \code{static = FALSE}, a \code{plotly} surface object. For \code{static = TR
 the SSE grid (\code{list(x, y, z)}) returned invisibly after drawing the surface.
 }
 \description{
-Convenience wrapper around \code{\link[=contour_plot_sse]{contour_plot_sse()}} that visualises the sum of
+Convenience wrapper around \code{\link[=sse_contour_plot]{sse_contour_plot()}} that visualises the sum of
 squared errors (SSE) of the LPPLS model over a grid of two chosen parameters,
 holding the rest fixed at supplied values. Axis labels follow each parameter's
 meaning under the given \code{mode} (in the higher-order Landau modes the \code{C2} slot
@@ -83,5 +83,5 @@ sse_surface_plot(
 }
 }
 \seealso{
-\code{\link[=contour_plot_sse]{contour_plot_sse()}}, \code{\link[=SSE]{SSE()}}, \code{\link[=eval_lppls]{eval_lppls()}}
+\code{\link[=sse_contour_plot]{sse_contour_plot()}}, \code{\link[=SSE]{SSE()}}, \code{\link[=eval_lppls]{eval_lppls()}}
 }

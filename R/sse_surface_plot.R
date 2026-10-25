@@ -1,7 +1,7 @@
 ## Display label for an LPPLS parameter under a given mode.
 ## In the higher-order Landau modes (1-3) the coefficient slot `C2` is repurposed
 ## as the log-periodic phase, so it is labelled "phi"; every other parameter keeps
-## its own name. Keeps axis labels correct for every caller of contour_plot_sse().
+## its own name. Keeps axis labels correct for every caller of sse_contour_plot().
 #' @noRd
 .lppls_display_label <- function(param, mode = 0) {
   if (identical(param, "C2") && mode %in% 1:3) "phi" else param
@@ -19,7 +19,7 @@
   sym(center)                                                  ## linear coefficients, etc.
 }
 
-## Static base-R persp() SSE surface from a contour_plot_sse() grid.
+## Static base-R persp() SSE surface from a sse_contour_plot() grid.
 #' @noRd
 .lppls_persp_sse <- function(grid, xlab, ylab, theta = -35, phi = 22, ...) {
   op <- graphics::par(mar = c(0.4, 0.4, 2.2, 0.4))   # persp reserves unused label margins
@@ -37,7 +37,7 @@
 
 #' Plot the SSE landscape around a set of LPPLS parameter values
 #'
-#' Convenience wrapper around [contour_plot_sse()] that visualises the sum of
+#' Convenience wrapper around [sse_contour_plot()] that visualises the sum of
 #' squared errors (SSE) of the LPPLS model over a grid of two chosen parameters,
 #' holding the rest fixed at supplied values. Axis labels follow each parameter's
 #' meaning under the given `mode` (in the higher-order Landau modes the `C2` slot
@@ -70,7 +70,7 @@
 #' @return For `static = FALSE`, a `plotly` surface object. For `static = TRUE`,
 #'   the SSE grid (`list(x, y, z)`) returned invisibly after drawing the surface.
 #'
-#' @seealso [contour_plot_sse()], [SSE()], [eval_lppls()]
+#' @seealso [sse_contour_plot()], [SSE()], [eval_lppls()]
 #'
 #' @examples
 #' \donttest{
@@ -136,13 +136,13 @@ sse_surface_plot <- function(log_price,
   ylab <- .lppls_display_label(vary[2], mode)
 
   if (!static) {
-    return(contour_plot_sse(log_p = log_price, t = t, par = par, vars = vars,
+    return(sse_contour_plot(log_p = log_price, t = t, par = par, vars = vars,
                             lower = lower, upper = upper,
                             cp = FALSE, sp = TRUE, mode = mode)$surface_plot)
   }
 
   ## Static path: get just the SSE grid (no plotly built), then draw persp().
-  grid <- contour_plot_sse(log_p = log_price, t = t, par = par, vars = vars,
+  grid <- sse_contour_plot(log_p = log_price, t = t, par = par, vars = vars,
                            lower = lower, upper = upper,
                            cp = FALSE, sp = FALSE, mode = mode)$contour_data
   .lppls_persp_sse(grid, xlab = xlab, ylab = ylab, ...)

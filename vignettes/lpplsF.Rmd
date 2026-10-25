@@ -59,7 +59,7 @@ it through time, or test it against noise.
 | Evaluate the model | `eval_lppls()`, `SSE()` |
 | Calibrate one window | `fit_lppls()` |
 | Read a calibration | `print()`, `summary()`, `plot()`, `lppls_curvature()`, `residual_qq_plot()` |
-| Draw a fit or a landscape | `fit_plot()`, `sse_surface_plot()`, `contour_plot_sse()` |
+| Draw a fit or a landscape | `fit_plot()`, `sse_surface_plot()`, `sse_contour_plot()` |
 | Date the start of a bubble | `lppls_rolling()`, `lppls_lagrange()`, `lr_trend_test()`, `rolling_tc_plot()`, `rolling_param_plot()`, `chi_sq_np_plot()`, `chi_sq_lambda_plot()` |
 | Test robustness to noise | `lppls_noise_sweep()`, `noise_param_plot()`, `noise_tc_plot()` |
 | Data | `spx`, the S&P 500 daily close from 2009 to 2020 |

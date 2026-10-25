@@ -289,7 +289,7 @@ vignettes, or drop the field *and* drop `knitr`/`rmarkdown` from `Suggests`
 
 **H1 — `\dontrun{}` on six help pages, including the flagship `fit_lppls()`.**
 `fit_lppls`, `lppls_rolling`, `lppls_lagrange`, `lr_trend_test`,
-`contour_plot_sse`, `fit_plot`. CRAN's standard reviewer response is that
+`sse_contour_plot`, `fit_plot`. CRAN's standard reviewer response is that
 `\dontrun{}` is for examples that genuinely *cannot* run, and to replace it with
 `\donttest{}` or unwrap it.
 
@@ -343,10 +343,10 @@ versions it claims to support.
 ### Medium
 
 **M1 — three examples are not self-contained.** `man/fit_plot.Rd`,
-`man/contour_plot_sse.Rd` and `man/lr_trend_test.Rd` use `log_p` / `t` without
+`man/sse_contour_plot.Rd` and `man/lr_trend_test.Rd` use `log_p` / `t` without
 ever defining them, so they would error if run. This is *why* they are in
 `\dontrun{}`; unwrapping per H1 requires fixing them first.
-`man/contour_plot_sse.Rd` also names a local `par`, shadowing `graphics::par`.
+`man/sse_contour_plot.Rd` also names a local `par`, shadowing `graphics::par`.
 
 **M2 — `LazyData: true` with no `data/` directory. CLOSED by the B2 work.**
 `R CMD build` was silently dropping it ("Omitted 'LazyData' from DESCRIPTION"),

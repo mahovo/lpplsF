@@ -48,7 +48,7 @@ suppressMessages(library(ggplot2))
 
 ## ── Format-aware SSE surface ─────────────────────────────────────────────────
 ## The package draws the SSE landscape as an interactive plotly 3-D surface
-## (contour_plot_sse(..., sp = TRUE)$surface_plot, camera eye = (1.1, -1.3, 0.1)).
+## (sse_contour_plot(..., sp = TRUE)$surface_plot, camera eye = (1.1, -1.3, 0.1)).
 ## plotly is an HTML widget, so for PDF output we redraw the same SSE grid as a
 ## static base-R persp() surface. `show_surface()` picks the right one for the
 ## current output format; both use the identical grid and axis labels.
@@ -86,7 +86,7 @@ show_surface <- function(log_p, t, par, vars, lower, upper, mode = 0, ylab = var
     g <- grid_sse(log_p, t, par, vars, lower, upper, mode); g$ylab <- ylab
     persp_sse(g)
   } else {
-    p <- contour_plot_sse(log_p = log_p, t = t, par = par, vars = vars,
+    p <- sse_contour_plot(log_p = log_p, t = t, par = par, vars = vars,
                           lower = lower, upper = upper,
                           cp = FALSE, sp = TRUE, mode = mode)$surface_plot
     if (!identical(ylab, vars$y)) {
@@ -148,12 +148,12 @@ round(eval_lppls(seq(1, 1000, length.out = 10),
 Calibration means minimizing the sum of squared errors (SSE) between the model
 and observed log-prices over the nonlinear parameters $(t_c, m, \omega)$; the
 linear parameters are profiled out. Before fitting, it helps to *see* that SSE
-landscape. `contour_plot_sse()` evaluates the SSE over a grid of two parameters,
+landscape. `sse_contour_plot()` evaluates the SSE over a grid of two parameters,
 holding the rest fixed, and returns that surface. Fix the parameters you are not
 scanning, name the two you are, and give each a range:
 
 ```{r contour-usage, eval=FALSE}
-contour_plot_sse(
+sse_contour_plot(
   log_p = log_p, t = t_obs,
   par   = list(tc = 1001, A = 8, B = -0.025, C1 = 0.0015, C2 = 0.001),
   vars  = list(x = "m", y = "omega"),

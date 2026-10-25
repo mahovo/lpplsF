@@ -56,7 +56,7 @@
 #' @section Visualising the model and its landscape:
 #' \describe{
 #'   \item{\code{\link{fit_plot}}}{A calibrated series with its fitted LPPLS curve}
-#'   \item{\code{\link{contour_plot_sse}}}{SSE over a grid of two parameters}
+#'   \item{\code{\link{sse_contour_plot}}}{SSE over a grid of two parameters}
 #'   \item{\code{\link{sse_surface_plot}}}{The same landscape as an interactive
 #'     or a static surface}
 #' }
