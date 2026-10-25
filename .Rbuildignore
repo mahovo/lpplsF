@@ -8,5 +8,10 @@
 ^lpplsF\.Rcheck$
 ^LICENSE\.md$
 ^\.github$
-^.git$
-^.gitignore$
+^\.git$
+^\.gitignore$
+^vignettes/.*-woven\.md$
+^vignettes/.*-exported\.[^/]*$
+^vignettes/figure$
+^vignettes/.*_files$
+^vignettes/.*\.(tex|log)$
