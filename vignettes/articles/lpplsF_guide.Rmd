@@ -1,0 +1,1069 @@
+---
+title: "The `lpplsF` package: A guided tour"
+subtitle: "Fitting, diagnostics and Lagrange regularization for the LPPLS bubble model"
+author: "lpplsF"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+    number_sections: true
+    df_print: kable
+params:
+  recompute: false   # FALSE (default) = load the dual-regime rolling calibration from its cache.
+                     # TRUE            = re-run it and refresh the cache.
+---
+
+```{r setup, include=FALSE}
+## ── Reproducibility switch (set in the YAML header) ──────────────────────────
+##   params$recompute = FALSE : load the dual-regime rolling calibration from its
+##                              cache (default).
+##                    = TRUE  : re-run it and refresh the cache. Everything else is
+##                              either computed live (the SSE surfaces, the data and
+##                              the single-model calibrations) or always loaded from
+##                              its pre-computed .rds (the noise tables and the S&P 500
+##                              rolling calibration; see "Reproducibility").
+RECOMPUTE <- isTRUE(params$recompute)
+
+## Pre-computed .rds live in a subdirectory next to this file. It is located from
+## the input file, not the working directory, because some ways of knitting
+## (polymode's ESS exporter among them) knit in the R session's working
+## directory. Run interactively, chunk by chunk, it falls back to the working
+## directory.
+input_dir <- if (is.null(knitr::current_input())) "." else
+  dirname(knitr::current_input(dir = TRUE))
+DATA_DIR  <- file.path(input_dir, "lpplsF_guide_data")
+dpath     <- function(f) file.path(DATA_DIR, f)
+if (RECOMPUTE) dir.create(DATA_DIR, showWarnings = FALSE, recursive = TRUE)
+
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+                      fig.width = 7, fig.height = 4.4, dpi = 110, fig.align = "center")
+
+library(lpplsF)
+suppressMessages(library(ggplot2))
+```
+
+`lpplsF` fits the **log-periodic power-law singularity (LPPLS)** model of Sornette
+and co-authors — a model of the faster-than-exponential, log-periodically
+decorated price growth that can precede a financial-bubble crash. This document
+is a **guided tour of the package**: every calibration, diagnostic and plot it
+offers, worked through on a series of examples that build on one another.
+
+**How to read it.** Each section builds on the previous one, from a single
+calibration on simulated data, through the optimizer's behaviour and its
+sensitivity to noise, to rolling-window bubble-onset detection and finally a real
+market series. You can read it front to back, or jump to the section matching the
+function you need.
+
+**Theory, and where to find it.** This guide is about *using* the package; it
+assumes the model rather than deriving it. The accompanying master's thesis sets
+out the theory behind every method used here: the model's derivation, the
+calibration scheme, the modified profile likelihood and the Lagrange
+regularization. Each section below names the thesis figure it corresponds to, so
+you can read the two side by side.
+
+**Reproducibility.** The single-model calibrations run live every time the
+document is knitted. The multi-fit noise and rolling-window tables (tens of
+minutes to hours of CPU) are shipped precomputed and loaded instead. The
+specification for each is given in its own section (see
+[Reproducibility and the cache]), and the dual-regime rolling calibration can be
+re-run in place by knitting with
+
+```r
+rmarkdown::render("lpplsF_guide.Rmd", params = list(recompute = TRUE))
+```
+
+**Interactive surfaces.** The SSE landscapes are interactive `plotly` surfaces
+(drag to rotate). `sse_surface_plot(..., static = TRUE)` draws the same grids as
+static base-R `persp()` surfaces, which is how the package's PDF overview,
+`vignette("lpplsF")`, shows them.
+
+# The model and its calibration landscape
+
+The core generator is `eval_lppls()`. A single LPPLS trajectory is a
+deterministic function of a critical time $t_c$, the power-law exponent $m$, the
+log-periodic angular frequency $\omega$, and linear coefficients $A, B, C_1, C_2$:
+
+```{r intro-eval}
+## ten points spread across a series whose critical time is tc = 1001
+round(eval_lppls(seq(1, 1000, length.out = 10),
+                 A = 8, B = -0.025, C1 = 0.0015, C2 = 0.001,
+                 tc = 1001, m = 0.6, omega = 8), 4)
+```
+
+Calibration means minimizing the sum of squared errors (SSE) between the model
+and observed log-prices over the nonlinear parameters $(t_c, m, \omega)$; the
+linear parameters are profiled out. Before fitting, it helps to *see* that SSE
+landscape. `sse_surface_plot()` evaluates the SSE over a grid of two parameters,
+holding the rest fixed, and draws that surface. Give the values of the
+parameters you are not scanning, name the two you are, and give each a range:
+
+```{r surface-usage, eval=FALSE}
+sse_surface_plot(
+  log_p, t_obs,
+  params = list(tc = 1001, A = 8, B = -0.025, C1 = 0.0015, C2 = 0.001),
+  vary   = c("m", "omega"),
+  span   = list(m = c(0.1, 0.9), omega = c(6, 13)),
+  mode   = 0
+)
+```
+
+Every surface in this section is produced that way. `sse_contour_plot()`, which
+it wraps, returns the grid itself and can draw a contour plot of it as well.
+
+## Simulated LPPLS(0) data
+
+*Thesis Figure 10.* A single LPPLS(0) process (the Filimonov–Sornette
+parameterization, `mode = 0`) of length $N = 1000$ plus Gaussian noise
+($\sigma = 0.05$); the SSE is evaluated on the first 910 observations (the
+critical time $t_c = 1001$ lies beyond the fitting window).
+
+| $t_c$ | $m$ | $\omega$ | $A$ | $B$ | $C_1$ | $C_2$ |
+|----:|----:|------:|---:|------:|------:|-----:|
+| 1001 | 0.6 | 8 | 8 | -0.025 | 0.0015 | 0.001 |
+
+```{r fig61-simulate}
+set.seed(3630)
+sigma <- 0.05
+N     <- 1000
+tc    <- N + 1                      # 1001
+sim   <- vapply(1:N, function(i) {
+  eval_lppls(i, A = 8, B = -0.025, C1 = 0.0015, C2 = 0.001,
+             tc = tc, m = 0.6, omega = 8) + rnorm(1) * sigma
+}, numeric(1))
+
+log_p <- sim[1:910]                 # fitting window
+t_obs <- (1:N)[1:910]
+```
+
+### SSE over $m$ and $\omega$ — thesis Figure 10(a)
+
+Flat/low for small $m$, a weak depression near $m = 0.6$, then a steep rise for
+larger $m$; only small oscillating variation along $\omega$.
+
+```{r fig61-mo, echo=FALSE}
+sse_surface_plot(
+  log_p, t_obs,
+  params = list(tc = 1001, A = 8, B = -0.025, C1 = 0.0015, C2 = 0.001),
+  vary   = c("m", "omega"),
+  span   = list(m = c(0.1, 0.9), omega = c(6, 13)), mode = 0
+)
+```
+
+### SSE over $t_c$ and $m$ — thesis Figure 10(b)
+
+Flat for small $m$, rising strongly for larger $m$; the variation along $t_c$ is
+small for small $m$.
+
+```{r fig61-tc-m, echo=FALSE}
+sse_surface_plot(
+  log_p, t_obs,
+  params = list(omega = 8, A = 8, B = -0.025, C1 = 0.0015, C2 = 0.001),
+  vary   = c("tc", "m"),
+  span   = list(tc = c(N - 90 + 1, N + 90), m = c(0.1, 0.9)), mode = 0
+)
+```
+
+### SSE over $t_c$ and $\omega$ — thesis Figure 10(c)
+
+Many strong oscillations along the $\omega$ direction — the source of the
+multi-modal, hard-to-optimize likelihood that motivates the profile methods below.
+
+```{r fig61-tc-o, echo=FALSE}
+sse_surface_plot(
+  log_p, t_obs,
+  params = list(m = 0.6, A = 8, B = -0.025, C1 = 0.0015, C2 = 0.001),
+  vary   = c("tc", "omega"),
+  span   = list(tc = c(N - 90 + 1, N + 90), omega = c(1, 20)), mode = 0
+)
+```
+
+## Higher-order Landau variants
+
+*Thesis Figure 11.* The package also implements the 1st- and 2nd-order
+Landau expansions (`mode = 1`, `mode = 2`). In those modes $C_2$ plays the role
+of the phase $\phi$, so a "$\phi$ axis" is produced by scanning $C_2$. The axes
+below are labelled $\phi$ accordingly.
+
+### $t_c$ and $\phi$, 1st-order Landau — thesis Figure 11(a)
+
+This surface uses the **$N = 1000$ mode-0 data from the previous section**, examined under
+the mode-1 $(t_c, \phi)$ landscape — modes 0 and 1 are equivalent
+parameterizations of the same 1st-order Landau LPPL. The phase periodicity
+($2\pi$) produces three local minima across $\phi \in [1, 20]$, plus a boundary
+solution at small $\phi$.
+
+```{r fig62-lppls1-tc-phi, echo=FALSE}
+sse_surface_plot(
+  log_p, t_obs,
+  params = list(m = 0.6, omega = 8, A = 8, B = -0.025, C1 = 0.0015),
+  vary   = c("tc", "C2"),
+  span   = list(tc = c(N - 90 + 1, N + 90), C2 = c(1, 20)), mode = 1
+)
+```
+
+### A 2nd-order Landau simulation
+
+The 2nd-order model adds a pre-critical regime of length $\Delta t = 500$ with
+secondary frequency $\Delta\omega = 0$. SSE is evaluated on the first 1910 of
+$N = 2000$ observations.
+
+| $t_c$ | $m$ | $\omega$ | $A$ | $B$ | $C_1$ | $C_2$ | $\Delta t$ |
+|----:|----:|------:|---:|------:|------:|-----:|----:|
+| 2001 | 0.6 | 8 | 8 | -0.025 | 0.0015 | 0.001 | 500 |
+
+```{r fig62-simulate}
+set.seed(3630)
+N2  <- 2000
+tc2 <- N2 + 1
+sim2 <- vapply(1:N2, function(i) {
+  eval_lppls(i, A = 8, B = -0.025, C1 = 0.0015, C2 = 0.001,
+             tc = tc2, m = 0.6, omega = 8, mode = 2, T1 = 500) + rnorm(1) * sigma
+}, numeric(1))
+log_p2 <- sim2[1:1910]
+t_obs2 <- (1:N2)[1:1910]
+```
+
+### $t_c$ and $\phi$, 2nd-order Landau — thesis Figure 11(b)
+
+Note the wider $t_c$ axis: the pre-critical regime lets parameters wander outside
+the usual LPPLS filter values.
+
+```{r fig62-lppls2-tc-phi, echo=FALSE}
+sse_surface_plot(
+  log_p2, t_obs2,
+  params = list(m = 0.6, omega = 8, A = 8, B = -0.025, C1 = 0.0015),
+  vary   = c("tc", "C2"),
+  span   = list(tc = c(N2 - 90 + 1, N2 + 200), C2 = c(1, 20)), mode = 2
+)
+```
+
+### $t_c$ and $\omega$, 2nd-order Landau — thesis Figure 11(c)
+
+Even more rugged than the Filimonov variant: narrow, deep ravines and strong
+oscillations along $\omega$.
+
+```{r fig62-lppls2-tc-o, echo=FALSE}
+sse_surface_plot(
+  log_p2, t_obs2,
+  params = list(m = 0.6, A = 8, B = -0.025, C1 = 0.0015, C2 = 0.001),
+  vary   = c("tc", "omega"),
+  span   = list(tc = c(N2 - 90 + 1, N2 + 200), omega = c(1, 20)), mode = 2
+)
+```
+
+# Fitting a single model
+
+`fit_lppls()` is the workhorse. With `mode = "MPL"` it calibrates by **modified
+profile likelihood**: for each candidate $t_c$ in the search window it profiles
+out $(m, \omega)$ (and the linear parameters), then builds a likelihood interval
+for $t_c$. We calibrate two simulated series: one with
+Gaussian noise (`M1`), one with AR(1)-GARCH(1,1) noise (`M2`). Each holds out the
+last 200 points, fits on $[1, 1800]$, and searches
+$t_c$ over $[1801, 2100]$; the true $t_c = 2001$.
+
+```{r figfit-helper}
+## One-row tidy estimate table from a fit_lppls() result.
+est_row <- function(fit) {
+  e <- fit$fit[[1]]
+  data.frame(tc = e$tc, m = e$m, omega = e$omega,
+             A = unname(e$A), B = unname(e$B),
+             C1 = unname(e$C1), C2 = unname(e$C2), D = unname(e$D))
+}
+
+## The calibration shared by M1 and M2. fp/pp/tp ask fit_lppls() to also attach
+## the fit plot, the per-tc parameter plot and the three BFGS trace plots to the
+## returned object, so they are available later without refitting.
+fit_call <- function(log_price) {
+  fit_lppls(
+    log_price = log_price, fh = 300, hold_out = 200,
+    lower = c(0.1, 6, -0.03, 0.8), upper = c(0.9, 13, -1e-14, 1e6),
+    tc_init = 1950, m_init = 0.2, o_init = 12, num_searches = 1,
+    mode = "MPL", mpl_cutoff = c(0.05, 0.1, 0.5), beta_method = "crossprod",
+    fp = TRUE, pp = TRUE, tp = c(1, 1, 1), tp_id = 1
+  )
+}
+```
+
+The Gaussian series is regenerated from `set.seed(3630)`. The GARCH series ships
+with this guide as `garch_series.rds`: it was drawn with `rugarch`, whose
+simulated paths depend on the package version, so it is stored rather than
+re-simulated.
+
+```{r figfit-data}
+set.seed(3630)
+Nf <- 2000
+gauss_series <- vapply(1:Nf, function(i) {
+  eval_lppls(i, A = 8, B = -0.025, C1 = 0.0015, C2 = 0.001,
+             tc = Nf + 1, m = 0.6, omega = 8) + rnorm(1) * sigma
+}, numeric(1))
+garch_series <- readRDS(dpath("garch_series.rds"))$log_p
+```
+
+```{r figfit-compute}
+## 300 profile-likelihood optimizations per series
+fit_gauss <- fit_call(gauss_series)
+fit_garch <- fit_call(garch_series)
+```
+
+## The fit plot
+
+In each plot the blue line is the simulated series, the red curve the estimated
+LPPLS process (up to the estimated $t_c$), the green dashed line marks
+$T_2 = 1800$, and the red dashed line the estimated $t_c$. *Thesis Figure 13;
+the estimates are those of thesis Table 3.*
+
+### M1 — Gaussian noise — thesis Figure 13(a)
+
+```{r figfit-gauss, fig.width=6, fig.height=4}
+fit_gauss$fit_plot
+```
+
+```{r figfit-gauss-est}
+knitr::kable(est_row(fit_gauss), digits = 5,
+             caption = "M1 (Gaussian noise) estimate; tc_hat = 1996.")
+```
+
+### M2 — AR(1)-GARCH(1,1) noise — thesis Figure 13(b)
+
+```{r figfit-garch, fig.width=6, fig.height=4}
+fit_garch$fit_plot
+```
+
+```{r figfit-garch-est}
+knitr::kable(est_row(fit_garch), digits = 5,
+             caption = "M2 (AR(1)-GARCH(1,1) noise) estimate; tc_hat = 1980.")
+```
+
+## Reading the fit: `print()` diagnostics
+
+A calibration can look perfectly good as a plot and still be untrustworthy. The
+`print()` method for `fit_lppls()` reports the estimate together with the checks
+that decide whether it means anything — this is the fastest way to find out
+whether a fit is worth interpreting.
+
+```{r figfit-print}
+fit_gauss
+```
+
+Line by line:
+
+* **Bounds.** $(m, \omega)$ are optimised inside a box. If the optimum sits *on*
+  a wall, the SSE is still falling in that direction and the estimate is a
+  constrained one — the regularity conditions behind the modified profile
+  likelihood do not hold, and its intervals mean nothing. The check is reported
+  twice: for the point estimate, and as a count across all the per-$t_c$
+  conditional fits. The second matters on its own, because an interior point
+  estimate can still rest on a profile that is pinned nearly everywhere.
+* **Basins.** Each candidate $t_c$ gets its own $(m, \omega)$ search, and with
+  few restarts some land in a worse local optimum than others. Distance from the
+  best SSE will not detect this — the conditional SSE *should* rise away from the
+  optimal $t_c$, so a healthy profile also has fits well above the minimum. What
+  betrays a failed search is a **gap**: the sorted SSEs falling into a good
+  cluster and a distinctly worse one. The reported number is the largest gap
+  between consecutive sorted values as a share of the total spread, which is
+  scale-free and near zero for a smooth profile.
+* **Filters.** How many candidate fits were rejected for $B \ge 0$ or for
+  damping, $D$, below its floor. These are the two constraints `fit_lppls()`
+  enforces internally, otherwise visible only as warnings while the fit runs.
+* **MPL.** How much of the $t_c$ grid the modified profile likelihood is defined
+  on. `compute_mpl()` returns `NA` wherever $\det(X'X - H) \le 0$, which at a
+  constrained optimum carries no guarantee of sign.
+
+A `Diagnostics:` block of `!` lines appears only when something is wrong, so a
+clean fit prints none — as here. [The S&P 500 example](#what-print-says-about-this-one) shows one that prints three.
+
+```{r figfit-print-garch}
+fit_garch
+```
+
+## Per-$t_c$ parameter estimates — thesis Figure 14
+
+Passing `pp = TRUE` to `fit_lppls()` attaches a parameter plot: each estimated
+parameter (and the objective) as a function of the candidate $t_c$, with the
+objective minimum ($\hat t_c$) marked. $C_1$ and $C_2$ trace near-sinusoidal
+curves that distort far from the true $t_c$ — more so under GARCH noise. No extra
+calibration runs; these reuse the fits above.
+
+### M1 — Gaussian noise — thesis Figure 14(a)
+
+```{r param-gauss, fig.width=5, fig.height=8}
+fit_gauss$param_plot
+```
+
+### M2 — AR(1)-GARCH(1,1) noise — thesis Figure 14(b)
+
+```{r param-garch, fig.width=5, fig.height=8}
+fit_garch$param_plot
+```
+
+# Reading the optimizer: BFGS traces
+
+*Thesis Figures 15, 16 and 17.* With `tp = c(1, 1, 1)`,
+`fit_lppls()` attaches three trace plots: Each shows the SSE landscape for a pair
+of parameters at the estimated $t_c$, overlaid with the BFGS path — red dot at
+the start $(m_{\text{init}}, \omega_{\text{init}}) = (0.2, 12)$, green diamond at
+the estimate.
+
+## $(m, \omega)$ topology — thesis Figure 15
+
+The governing topology for calibration: a single interior minimum BFGS finds
+easily. The GARCH minimum sits slightly further from the true $(0.6, 8)$.
+
+```{r trace-mo-gauss, fig.width=6, fig.height=4}
+fit_gauss$trace_plot_mo   # Gauss
+```
+
+```{r trace-mo-garch, fig.width=6, fig.height=4}
+fit_garch$trace_plot_mo   # GARCH
+```
+
+## $(B, m)$ topology — thesis Figure 16
+
+Very steep for large $m$ and large negative $B$ (note the SSE scale $\sim 10^8$),
+flat elsewhere.
+
+```{r trace-bm-gauss, fig.width=6, fig.height=4}
+fit_gauss$trace_plot_bm   # Gauss
+```
+
+```{r trace-bm-garch, fig.width=6, fig.height=4}
+fit_garch$trace_plot_bm   # GARCH
+```
+
+## $(B, \omega)$ topology — thesis Figure 17
+
+SSE varies only in small waves along $\omega$.
+
+All three trace plots share one optimization path, computed once, so the
+$(B, \omega)$ view starts from the same `init_B` as $(B, m)$ and ends at the
+estimate.
+
+```{r trace-bo-gauss, fig.width=6, fig.height=4}
+fit_gauss$trace_plot_bo   # Gauss
+```
+
+```{r trace-bo-garch, fig.width=6, fig.height=4}
+fit_garch$trace_plot_bo   # GARCH
+```
+
+# Robustness to noise
+
+*Thesis Figures 18, 19 and 20.* How much noise can a calibration take before its
+estimates stop meaning anything? That is a property of the model rather than of
+any particular series, so it is studied on a known signal: take a deterministic
+LPPLS path, add noise at a range of levels, recalibrate at each, and watch the
+estimates move.
+
+`lppls_noise_sweep()` runs that experiment. It takes the clean signal, a vector
+of noise levels, and the arguments to pass to `fit_lppls()`, and returns one row
+per level:
+
+```{r noise-sweep-usage, eval=FALSE}
+N      <- 2000
+signal <- eval_lppls(seq_len(N), A = 8, B = -0.025, C1 = 0.0015, C2 = 0.001,
+                     tc = N + 1, m = 0.6, omega = 8)
+
+sweep <- lppls_noise_sweep(
+  signal,
+  sd_seq   = seq(0.005, 0.100, by = 0.005),      # 20 noise levels
+  fit_args = list(fh = 150, hold_out = 100,
+                  lower = c(0.1, 6, -0.03, 0.8),
+                  upper = c(0.9, 13, -1e-14, 1e6),
+                  m_init = 0.2, o_init = 12, num_searches = 1,
+                  mode = "MPL", mpl_cutoff = c(0.05, 0.1, 0.5)),
+  seed = 3630
+)
+```
+
+The `noise` argument decides what kind of perturbation is studied. It defaults to
+`rnorm`, and takes any function of `n` returning standardised innovations, so a
+heavy-tailed or serially dependent alternative can be compared against the
+Gaussian case on the very same signal:
+
+```{r noise-sweep-alt, eval=FALSE}
+## Student-t innovations, rescaled to unit variance so `sd_seq` still reads as
+## a standard deviation
+heavy <- function(n) rt(n, df = 4) / sqrt(4 / 2)
+lppls_noise_sweep(signal, sd_seq = seq(0.005, 0.100, by = 0.005),
+                  noise = heavy, fit_args = fit_args, seed = 3630)
+```
+
+The four sweeps below are of that shape: M1 and M2 under Gaussian noise, and the
+same pair under AR(1)-GARCH(1,1) noise, where M2 is M1 with $C_1, C_2$ negated
+(opposite phase). That is **80 calibrations**, so the tables are shipped
+precomputed (`noise_*.rds`) and loaded here; see
+[Reproducibility and the cache].
+
+```{r noise-setup, echo=FALSE}
+noise_m1_gauss <- readRDS(dpath("noise_m1_gauss.rds"))
+noise_m2_gauss <- readRDS(dpath("noise_m2_gauss.rds"))
+noise_m1_garch <- readRDS(dpath("noise_m1_garch.rds"))
+noise_m2_garch <- readRDS(dpath("noise_m2_garch.rds"))
+```
+
+## Parameter estimates vs noise level — thesis Figure 18
+
+`noise_param_plot()` draws each estimate against the noise level, one panel per
+parameter. $\omega, C_1, C_2$ (the log-periodic parameters) are the most
+noise-sensitive.
+
+### Gaussian noise, M1
+
+```{r noise-sd-gauss, fig.width=5, fig.height=8}
+noise_param_plot(noise_m1_gauss)
+```
+
+### AR(1)-GARCH(1,1) noise, M1
+
+```{r noise-sd-garch, fig.width=5, fig.height=8}
+noise_param_plot(noise_m1_garch)
+```
+
+## $t_c$ likelihood intervals vs noise level
+
+`noise_tc_plot()` draws the $t_c$ estimate and the MPLE with the nested
+likelihood-interval bands. Pass `true_tc` on a simulated signal and it marks the
+true value, here $t_c = 2001$.
+
+### Gaussian noise: M1, then M2 at opposite phase — thesis Figure 19
+
+```{r noise-li-m1-gauss, fig.width=6, fig.height=4}
+noise_tc_plot(noise_m1_gauss, true_tc = 2001)
+```
+
+```{r noise-li-m2-gauss, echo=FALSE, fig.width=6, fig.height=4}
+noise_tc_plot(noise_m2_gauss, true_tc = 2001)
+```
+
+### AR(1)-GARCH(1,1) noise: M1, then M2 at opposite phase — thesis Figure 20
+
+```{r noise-li-m1-garch, echo=FALSE, fig.width=6, fig.height=4}
+noise_tc_plot(noise_m1_garch, true_tc = 2001)
+```
+
+```{r noise-li-m2-garch, echo=FALSE, fig.width=6, fig.height=4}
+noise_tc_plot(noise_m2_garch, true_tc = 2001)
+```
+
+# Rolling windows and Lagrange regularization
+
+*Thesis Figures 23 to 25.* Lagrange regularization (Demos & Sornette, 2019)
+tries to find the onset of a bubble by rolling the calibration start $T_1$
+forward (fixed end $T_2$) and looking for the window where the normalized
+residual $\chi^2_{np}(T_1)$ stops falling. The package
+splits this into a reusable primitive and cheap post-processing:
+
+* `lppls_rolling()` runs one calibration per $T_1$ (the expensive part);
+* `lppls_lagrange()`, `rolling_tc_plot()`, `rolling_param_plot()`,
+  `chi_sq_np_plot()`, `chi_sq_lambda_plot()` are all post-processing on it.
+
+In a pure LPPL process every window is already LPPL, so $\chi^2_{np}$ is flat and
+regularization has nothing to correct. So the example is a **dual-regime** series
+consisting of a flat "ranging" segment for $t < 600$ that switches to an LPPL
+process at $t = 600$
+(`tc = 2001, m = 0.6, omega = 8, A = 8, B = -0.025, C1 = 0.0015, C2 = 0.001`;
+Gaussian noise $\sigma = 0.05$, seed 3630). The rolling approaches the onset from
+below: as $T_1$ climbs toward 600 each window sheds more of the pre-LPPL data and
+the fit tightens, so $\chi^2_{np}$ decreases; once $T_1$ passes 600 the window is
+pure LPPL again and the trend flattens. The rolling ($T_1 = 1 \to 1001$ step 10,
+$T_2 = 1900$; 101 windows) is shipped precomputed as
+`lagrange_rolling_regime_gauss.rds`.
+
+```{r regime-gauss-build}
+## The dual-regime series: flat at the LPPL value at t = 600 for t < 600, then
+## the LPPL process itself, with N(0, 0.05^2) noise throughout. In this example
+## the two segments draw their noise from separate seeds: `seed` for the flat
+## prefix, `seed + 1` for the bubble. So both set.seed() calls are needed to
+## reproduce it. (This is not really important, it just happens to be the way
+## the figures for the thesis were generated.)
+N_rg <- 2000
+build_rg <- function(seed, onset = 600) {
+  bub <- eval_lppls(onset:N_rg, 8, -0.025, 0.0015, 0.001, N_rg + 1, 0.6, 8)
+  set.seed(seed + 1)
+  c(rep(bub[1], onset - 1), bub) +
+    c({ set.seed(seed); rnorm(onset - 1) * 0.05 }, rnorm(N_rg - onset + 1) * 0.05)
+}
+
+## Regenerated on both paths: it is instant, and the residual guard below needs
+## the series even when the calibration comes from the cache.
+lp_rg <- build_rg(3630)
+```
+
+```{r regime-gauss-compute, eval=RECOMPUTE}
+## 101 windows, each a 150-candidate tc scan (MPL: the likelihood
+## intervals rolling_tc_plot() needs).
+roll_rg <- lppls_rolling(
+  lp_rg,
+  t1_seq = seq(1, 1001, by = 10),
+  hold_out = 100,
+  fh = 150,
+  fit_args = list(
+    lower = c(0.1, 6, -0.03, 0.8),
+    upper = c(0.9, 13, -1e-14, 1e6),
+    m_init = 0.2,
+    o_init = 12,
+    num_searches = 1,
+    mode = "MPL",
+    mpl_cutoff = c(0.05, 0.1, 0.5),
+    factr = 1e7)
+  )
+```
+
+```{r regime-gauss-save, eval=RECOMPUTE, echo=FALSE}
+saveRDS(roll_rg, dpath("lagrange_rolling_regime_gauss.rds"))
+```
+
+```{r regime-gauss-load, eval=!RECOMPUTE, echo=FALSE}
+roll_rg <- readRDS(dpath("lagrange_rolling_regime_gauss.rds"))
+```
+
+```{r regime-gauss-lagrange}
+lag_rg <- lppls_lagrange(roll_rg, p = 0)
+lag_rg
+```
+
+Optimal $T_1^* =$ **`r lag_rg$t1_star`** (true onset 600); $\lambda =$
+`r signif(-lag_rg$slope, 3)` $> 0$ — a genuine bias trend (a pure LPPL series
+would give $\lambda \approx 0$).
+
+`lppls_rolling()` keeps the fit from every window. To examine the one that
+Lagrange regularization selected, locate it in the sequence and pull out the
+quantities that describe it.
+
+```{r regime-gauss-window}
+k_rg  <- which(roll_rg$t1_seq == lag_rg$t1_star)  # position of the optimal window
+T1_rg <- roll_rg$t1_seq[k_rg]                     # its calibration start, T1*
+nc_rg <- roll_rg$table$n_cal[k_rg]                # how many points it calibrated on
+T2_rg <- T1_rg + nc_rg - 1                        # its calibration end, T2
+f_rg  <- roll_rg$fits[[k_rg]]                     # the fit itself
+```
+
+## The generated series and its fit — thesis Figure 23
+
+Blue the generated series, red the fitted LPPLS process up to $\hat t_c$, dashed
+markers at the calibration bounds and $\hat t_c$. The series spans two regimes and
+the fit is calibrated on only the later part, so the red curve starts at $T_1^*$ —
+the flat regime is shown but never fitted. `lppls_rolling()` stores the fit in
+window-local time ($t = 1$ at $T_1$), so $\hat t_c$ is shifted by the window offset
+to draw it on the global clock.
+
+```{r regime-gauss-fit, fig.width=6, fig.height=4}
+f_glob    <- f_rg
+f_glob$tc <- f_rg$tc + (T1_rg - 1)   # window-local -> global clock
+
+fit_plot(f_glob, seq_along(lp_rg), lp_rg, T1 = T1_rg, T2 = T2_rg)
+```
+
+Give `fit_plot()` both window bounds and it draws the curve only where the fit
+applies.
+
+## Rolling-$T_1$ estimates — thesis Figure 24
+
+How the $t_c$ estimate and the six parameters move as $T_1$ rolls across the
+onset. For $T_1$ well below 600 the window still contains ranging data and the
+estimates wander; as $T_1$ approaches and passes 600 the window becomes
+predominantly, then purely, LPPL and $\hat t_c$ settles near the true 2001.
+
+```{r regime-gauss-tc, fig.width=6, fig.height=4}
+rolling_tc_plot(roll_rg)
+```
+
+```{r regime-gauss-params, fig.width=5, fig.height=8}
+rolling_param_plot(roll_rg)
+```
+
+## Lagrange regularization — thesis Figure 25
+
+$\chi^2_{np}(T_1)$ with the OLS bias trend (red), then the regularized objective
+$\chi^2_{\lambda^*}(T_1)$ with the optimal $T_1^*$ (green):
+
+```{r regime-gauss-chi-np, fig.width=6, fig.height=4}
+chi_sq_np_plot(lag_rg)
+```
+
+```{r regime-gauss-chi-lambda, fig.width=6, fig.height=4}
+chi_sq_lambda_plot(lag_rg)
+```
+
+> **Is that decrease real, or a noise artifact?** That question, and the
+> autocorrelation-robust `lr_trend_test()` that answers it, are taken up in a
+> separate investigation,
+> [`lagrange_inference_report.Rmd`](https://github.com/mahovo/lpplsF/blob/main/misc/lagrange_inference_report.Rmd),
+> in the package's `misc/` directory on GitHub. It is not built with the package.
+
+## Residuals at $T_1^*$
+
+```{r regime-gauss-guard, echo=FALSE}
+## Load-path integrity: the regenerated series must reproduce the cached
+## calibration exactly (residual SSE == stored sse_cal).
+res_rg <- lp_rg[T1_rg:roll_rg$n_full][seq_len(nc_rg)] -
+  eval_lppls(seq_len(nc_rg), f_rg$A, f_rg$B, f_rg$C1, f_rg$C2,
+             f_rg$tc, f_rg$m, f_rg$omega, mode = 0)
+stopifnot(isTRUE(all.equal(sum(res_rg^2), roll_rg$table$sse_cal[k_rg])))
+```
+
+The residual QQ plot for the window at $T_1^*$. The residuals are near-normal.
+
+```{r regime-gauss-res, fig.width=6, fig.height=4}
+residual_qq_plot(res_rg)
+```
+
+# Empirical example: the S&P 500
+
+*Thesis Figures 27 to 32.* The package ships the S&P 500 series as the dataset `spx` (see
+`?spx`), covering exactly the calibrated window, 2009-05-18 to 2020-12-31. We fit
+on $[1, 2428]$ (to 2019-01-08) with `hold_out = 500`, `fh = 500`.
+
+```{r spx-data}
+## `spx` is lazy-loaded with the package: 2,928 daily closes, 2009-05-18..2020-12-31.
+df_spx <- data.frame(Date = spx$date, logpris = log(spx$close))
+df_spx$ID <- seq_len(nrow(df_spx))
+n_cal_spx <- nrow(df_spx) - 500    # 2428
+```
+
+> **A note on the series.** The thesis calibrated the CRSP S&P 500 Composite
+> series (`spindx`, obtained through Wharton Research Data Services). That data
+> is licensed and cannot be redistributed, so the package ships the corresponding
+> Yahoo Finance series (`^GSPC`) for the same trading days. The two agree to
+> 1.6e-07 on average, and recalibrating on the shipped series leaves every
+> quantity reported below unchanged: $\hat t_c = 2717$ (2020-03-03), $m = 0.9$,
+> $\omega = 6.1596$, and all three likelihood intervals identical. Only the
+> Brent-refined $t_c$ at the final step of the MPL computation moves, in its
+> seventh decimal. That step refines thesis equation 38 at the
+> $(\hat m, \hat\omega)$ which minimise equation 39 on the integer grid.
+
+```{r spx-compute}
+## fh = 500 profile-likelihood optimizations
+spx_fit <- fit_lppls(
+  log_price = df_spx$logpris, fh = 500, hold_out = 500,
+  lower = c(0.1, 6, -0.5, 0.8), upper = c(0.9, 13, -1e-14, 1e6),
+  tc_init = n_cal_spx + 250, m_init = 0.2, o_init = 12, num_searches = 1,
+  mode = "MPL", mpl_cutoff = c(0.05, 0.1, 0.5),
+  dates = df_spx$Date,          # calendar labels for the 1..n index
+  style = "empirical",          # grey data; the forecast past T2 in red
+  fp = TRUE, mpl_plot = TRUE, tp = c(1, 0, 0), pp = TRUE)
+```
+
+```{r spx-est}
+e <- spx_fit$fit[[1]]
+```
+
+The point estimate: PLE $t_c =$
+**`r as.character(df_spx$Date[round(e$tc)])`**, with $m =$ `r round(e$m, 2)`
+(pinned at the upper boundary) and $\omega =$ `r round(e$omega, 2)`.
+
+### What `print()` says about this one
+
+[Reading the fit](#reading-the-fit-print-diagnostics) introduced the diagnostics on a healthy calibration, which printed no
+warnings. This is the contrasting case, and it is worth reading before any of the
+figures below:
+
+```{r spx-print}
+spx_fit
+```
+
+Three flags, and every caveat in the rest of this section follows from them. The
+estimate is a **boundary solution**, and not marginally — $m$ is at its upper
+bound in the point estimate *and* in every conditional fit, with
+$\partial\,\mathrm{SSE}/\partial m < 0$ there, so the constraint is genuinely
+active and the regularity conditions behind the modified profile likelihood do
+not hold. Most of the conditional fits sit in a **distinctly inferior basin**,
+which is why the MPL curve below is two-tiered rather than smooth, and why
+`num_searches = 1` is the wrong setting for this series. And the MPL is
+**undefined on part of the grid**, so the curve has gaps the likelihood intervals
+cannot see across.
+
+None of this is visible in the point estimate, which looks entirely ordinary.
+
+It would be easy to read the warnings above as a defect in the data, in the
+settings, or in the package, and to go looking for a configuration that silences
+them. That would be the wrong lesson. Boundary solutions, split basins and an
+undefined modified profile likelihood are *properties of the LPPLS model itself*:
+the objective is non-convex, the log-periodic parameters are only weakly
+identified, and the regularity conditions the modified profile likelihood assumes
+are not guaranteed to hold at a constrained optimum.
+
+The master's thesis for which this package was written takes up exactly this
+question: When an LPPLS calibration is worth believing, and what to do when it is
+not. The S&P 500 case above is its Chapter 9.
+
+## Fit plot — thesis Figure 27
+
+Because the calibration was given `dates`, the attached `$fit_plot` is already
+drawn on a calendar axis. Pass `dates` to [`fit_lppls()`] and every plot and
+printout it produces speaks in dates; omit it and everything falls back to the
+1..n time index.
+
+It was also given `style = "empirical"`. An observed price series is given and
+cannot be otherwise, so it is drawn in grey, and the fitted curve splits at
+$T_2$: blue where data supports it, red beyond, where the curve is a forecast.
+The default `style = "simulated"` draws a generated series in colour with a
+single fitted line, which is what the earlier sections use.
+
+```{r spx-fitplot, fig.width=8, fig.height=4}
+plot(spx_fit, "fit")
+```
+
+The same plot can be drawn from a bare estimate with `fit_plot()`, which takes
+`dates` directly:
+
+```{r spx-fitplot-direct, eval=FALSE}
+fit_plot(spx_fit$fit[[1]], seq_len(nrow(df_spx)), df_spx$logpris,
+         T2 = n_cal_spx, dates = df_spx$Date, style = "empirical")
+```
+
+## Modified profile likelihood — thesis Figure 28
+
+The MPLE coincides with the PLE, at 2020-03-03. The `MPL:` line of the printout
+above gives that date next to the index, and each likelihood interval in both
+forms. `compute_mpl()` returns `NA` wherever $\det(X'X - H) \le 0$. At a
+constrained optimum that determinant carries no guarantee of sign, which is why
+the same line counted gaps in the grid.
+
+> **Diagnostic caveat.** The point estimate agrees with the PLE, but the bands are
+> not inference — the `Bounds:` and `Basins:` lines above already say why. Two
+> consequences the printed summary does not spell out. First, the basin split is
+> what makes the curve **two-tiered** rather than smooth: the two tiers are
+> $\approx 39$ log-likelihood units apart, so the plot below is not one curve but
+> two.
+>
+> Second, and the reason to distrust the bands specifically: the likelihood
+> intervals here trace **where the optimiser succeeded**, not the curvature of the
+> likelihood. Every grid point inside LI_05 is a good-basin fit and every point
+> outside it is not; its lower edge is exactly where the good-basin run containing
+> the PLE begins, and its upper edge is the end of the *next* such run, which
+> `range()` bridges across the gap between them. LI_05 and LI_10 coincide for the
+> same reason. The relative-scale plot below makes this visible: only LI_50 has a
+> crossing. **Read the MPLE, not the bands.**
+
+```{r spx-mplplot, fig.width=5.5, fig.height=4}
+spx_fit$mpl_plot
+```
+
+### The same curve on a relative scale
+
+The absolute level of the log MPL carries no information. Its magnitude comes
+almost entirely from the variance term of the modified profile likelihood
+(thesis eq. 53), $-\tfrac{n - p - 2}{2}\log \hat{s}_{t_c}$. A well-fitting model has a small
+residual variance, here $\hat{s} = \sigma^2 \approx 0.0022$, whose logarithm is
+large and negative. Multiplying by $-(n - p - 2)/2 \approx -1210$ flips the sign
+and scales it by the sample size, which gives $\approx 7417$. The determinant
+ratio contributes only $\approx -34$, so the curve peaks near $7383$. The formula
+also drops additive constants that do not depend on $t_c$. What the likelihood intervals actually test is the *difference*
+$R = \log\mathrm{MPL} - \max\log\mathrm{MPL}$ against $\log(\text{cutoff})$, and
+`compute_mpl()` already returns it as `mpl_output$R`.
+
+Plotting $R$ and restricting the view to the band the cutoffs live in provides a
+better view of the optimum. `plot(fit, "mpl_relative")` draws that view from the
+stored `mpl_output`, so it needs nothing requested at fit time. The horizontal
+lines are the cutoffs themselves, so each interval can be read off where the
+curve crosses one.
+
+```{r spx-mplplot-rel, fig.width=5.5, fig.height=4}
+plot(spx_fit, "mpl_relative")
+```
+
+Only `LI_50` has a crossing: the curve descends from the peak to about $-1.15$
+and then stops, so it never reaches $\log 0.10$ or $\log 0.05$. Those two
+intervals end where the good basin ends.
+
+## The rest of the diagnostics
+
+`print()` is the quick triage. Three further tools answer the questions it
+raises: *where* the basins are, whether the estimate sits at a genuine minimum,
+and whether the intervals are closed by the likelihood or by the grid.
+
+### The basin split, drawn
+
+`plot(fit, "basin")` shows every conditional fit's SSE against its $t_c$, split
+at the gap `print()` reported. It needs nothing that was not already computed, so
+it works even on a fit that requested no plots.
+
+```{r spx-basin, fig.width=6, fig.height=3.6}
+plot(spx_fit, "basin")
+```
+
+The same view of the well-behaved calibration from [Fitting a single model](#fitting-a-single-model), for contrast — one cloud,
+rising smoothly away from the optimal $t_c$, which is what a profile should look
+like:
+
+```{r gauss-basin, fig.width=6, fig.height=3.6}
+plot(fit_gauss, "basin")
+```
+
+### What the basins are made of
+
+The view above shows *that* the fits split, but not what they split on.
+`"param_basin"` applies the same division to every estimated parameter rather
+than only the objective, which is where the mechanism becomes visible.
+
+```{r spx-param-basin, fig.width=6, fig.height=9.5}
+plot(spx_fit, "param_basin")
+```
+
+```{r spx-basin-ranges}
+## The split is the one summary() reports; here it is per parameter.
+cut_at <- summary(spx_fit)$split_at[1]
+pt     <- spx_fit$fit[[2]]
+pt$basin <- ifelse(pt$value <= cut_at, "good", "inferior")
+rng <- function(z) sprintf("%.3f - %.3f", min(z), max(z))
+knitr::kable(
+  aggregate(cbind(m, omega, D) ~ basin, data = pt, FUN = rng),
+  caption = "Range of each nonlinear estimate within each basin.")
+```
+
+The two basins are separated almost entirely by $\omega$: The good one sits near
+the bottom of the $[6, 13]$ search box, the inferior one near the top. $m$ is at
+$0.9$ in **both**, so it plays no part in the split at all.
+
+That separates two failures which the SSE view alone runs together. The pinned
+$m$ is a **boundary** problem, and it affects every fit on the grid. The two
+tiers are an **$\omega$ multimodality** problem, and it affects only which
+optimum a single L-BFGS-B start happens to reach — a `num_searches` setting, not
+a property of the data. The `C1`/`C2` facets tell the same story: The inferior
+fits oscillate through a high-frequency regime while the good ones trace a smooth
+low-frequency arc.
+
+### Curvature at the estimate
+
+The modified profile likelihood assumes the estimate is an interior minimum: Its
+correction uses $\det(X'X - H)$, the observed information, which is only
+guaranteed positive at an interior stationary point. $X$ holds the model's first
+derivatives with respect to the six parameters, and $H$ its second derivatives,
+each weighted by the residual at that observation and summed (thesis eq. 55).
+$H$ is thus a residual-weighted curvature term rather than a Hessian in its own
+right. `lppls_curvature()` tests the determinant directly, and factorises it to
+show where the sign comes from.
+
+By the Schur complement, $\det(X'X - H)$ factorises into the determinant of the
+linear-parameter block times the determinant of the $2 \times 2$ Hessian of the
+$(m, \omega)$ profile. The model is linear in $A, B, C_1, C_2$, so their second
+derivatives vanish, $H$ contributes nothing to the linear block, and what remains
+there is a crossproduct with a positive determinant. The sign is therefore
+decided entirely by curvature in the two nonlinear parameters: the
+$2 \times 2$ block the function reports.
+
+```{r spx-curvature}
+lppls_curvature(spx_fit)
+```
+
+Read the classification and the bound note as two separate facts. The curvature
+*is* positive definite here, so the $t_c$ the MPL reports is not an artefact of a
+degenerate Hessian. But $m$ rests on its bound, so the gradient need not vanish:
+the estimate is a constrained one whatever the curvature says. It is the
+combination of sound curvature and an active constraint that makes the point
+estimate usable and the intervals not.
+
+### Everything at once: `summary()`
+
+`summary()` returns the diagnostics as values rather than text, so they can be
+tested against instead of parsed. Printing it gives the `print()` report plus the
+curvature line and an interval breakdown.
+
+```{r spx-summary}
+s <- summary(spx_fit)
+s$basin_gap
+s$mpl$li_check[[1]]
+```
+
+That last list is the interval integrity check. `compute_mpl()` forms an interval
+as `range()` of the $t_c$ whose $R$ exceeds $\log(\text{cutoff})$ — and `range()`
+does not care whether that set has holes. When it does, the reported interval
+contains grid points that are not themselves in it:
+
+```{r spx-summary-print}
+s
+```
+
+`LI(0.05)` and `LI(0.10)` each span more grid points than are above their cutoff:
+the interval bridges the gap between two runs of good-basin fits. `LI(0.50)` is
+contiguous. This is the same conclusion the relative-scale plot above shows
+visually, arrived at from the numbers.
+
+## Fit diagnostics — thesis Figure 32
+
+The BFGS path slides to the $(m, \omega)$ boundary corner; the per-$t_c$
+parameter panel shows $m$ pinned at 0.9 with jumps where it hits the boundary.
+
+```{r spx-trace, fig.width=6, fig.height=4}
+spx_fit$trace_plot_mo
+```
+
+```{r spx-param, fig.width=5, fig.height=8}
+spx_fit$param_plot
+```
+
+## Residual QQ diagnostics — thesis Figure 29
+
+Residuals of the SPX calibration ($t < \hat t_c$) against a normal and a fitted
+Student-t reference, both via `residual_qq_plot()`.
+
+```{r spx-qq-setup, echo=FALSE}
+lppls_all <- eval_lppls(df_spx$ID, e$A, e$B, e$C1, e$C2, e$tc, e$m, e$omega)
+res_spx   <- df_spx$logpris[!is.na(lppls_all)] - lppls_all[!is.na(lppls_all)]
+```
+
+```{r spx-qq-norm, fig.width=8, fig.height=4}
+residual_qq_plot(res_spx)
+```
+
+```{r spx-qq-t, fig.width=8, fig.height=4}
+residual_qq_plot(res_spx, "t")
+```
+
+## Lagrange regularization on the S&P 500 — thesis Figure 31
+
+Rolling $T_1 = 1 \to 501$ step 25 (21 windows), $T_2 = 2428$ fixed; shipped
+precomputed as `lagrange_rolling_spx.rds` (21-window MPL fit).
+
+The refit spec is the `spx-fit` call above with `t1_seq = seq(1, 501, 25)`,
+`T2 = 2428`; `lppls_rolling()` sets each window's `tc_init` to
+`n_cal + floor(fh / 2)`, so window 1 reproduces `spx_fit` exactly.
+
+```{r spxroll-setup}
+roll_spx <- readRDS(dpath("lagrange_rolling_spx.rds"))
+lag_spx  <- lppls_lagrange(roll_spx, p = 0)
+lag_spx
+```
+
+Optimal $T_1^* =$ **`r lag_spx$t1_star`**
+(= `r as.character(df_spx$Date[lag_spx$t1_star])`). Here $\beta_1 < 0$,
+$\lambda > 0$, so the Demos bias trend is genuinely present.
+
+```{r spxroll-chi-np, fig.width=6, fig.height=4}
+chi_sq_np_plot(lag_spx)
+```
+
+```{r spxroll-chi-lambda, fig.width=6, fig.height=4}
+chi_sq_lambda_plot(lag_spx)
+```
+
+```{r spxroll-output-T1, fig.width=6, fig.height=4}
+rolling_tc_plot(roll_spx)   # PLE saturates at the tc bound
+```
+
+# Reproducibility and the cache
+
+This document separates three tiers of computation:
+
+1. **Live (always run).** The [SSE surfaces](#the-model-and-its-calibration-landscape), all data simulation and the
+   three single-model calibrations `fit_gauss`, `fit_garch` and `spx_fit` are
+   recomputed on every knit; the calibration code is shown in full above.
+2. **Cached, re-runnable in place.** The dual-regime rolling calibration is
+   cached as `lagrange_rolling_regime_gauss.rds`. Knit with
+   `params = list(recompute = TRUE)` to re-run it and refresh the cache.
+3. **Precomputed multi-fit tables (reload-only).** The 20-level noise experiments
+   (`noise_*.rds`) and the S&P 500 rolling calibration
+   (`lagrange_rolling_spx.rds`) are shipped precomputed. The specification for
+   each is given in its own section, so they can be regenerated with
+   `lppls_noise_sweep()` and `lppls_rolling()`.
+
+The only input that cannot be regenerated deterministically is the
+AR(1)-GARCH(1,1) series. `rugarch`'s simulated paths depend on the package
+version, so it is always loaded from `garch_series.rds`.
+
+```{r session, echo=FALSE}
+sessionInfo()
+```

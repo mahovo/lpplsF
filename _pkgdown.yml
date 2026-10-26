@@ -1,0 +1,4 @@
+url: https://mahovo.github.io/lpplsF/
+template:
+  bootstrap: 5
+  math-rendering: mathjax
