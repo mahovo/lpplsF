@@ -357,21 +357,17 @@ compute_H_matrix <- function(Psi, tc, log_p, t) {
 }
 
 
-#' Create MPL Plot
+#' Markers shared by the MPL plots
+#'
+#' Collects the vertical markers into one data frame so colour and linetype map
+#' to a single legend: the PLE / MPLE point estimates and the LI bounds (each
+#' interval contributes two lines but one legend entry). Returned with the
+#' colour and linetype of every series, so the absolute and the relative MPL
+#' plot draw them identically.
 #'
 #' @keywords internal
 #' @noRd
-create_mpl_plot <- function(mpl_output, fit, n, fh) {
-  tc_seq <- (n + 1):(n + fh)
-
-  df_plot <- data.frame(
-    tc = tc_seq,
-    log_mpl = mpl_output$LL
-  )
-
-  ## Collect the vertical markers into one data frame so colour and linetype
-  ## map to a single legend: the PLE / MPLE point estimates and the LI bounds
-  ## (each interval contributes two lines but one legend entry).
+.mpl_markers <- function(mpl_output, fit) {
   vmarks <- data.frame(
     xintercept = c(fit[[1]]$tc, mpl_output$tc_hat_mpl),
     series = c("PLE", "MPLE")
@@ -387,14 +383,34 @@ create_mpl_plot <- function(mpl_output, fit, n, fh) {
     }
   }
 
-  all_lvls <- c("PLE", "MPLE", "LI_05", "LI_10", "LI_50")
-  present <- all_lvls[all_lvls %in% vmarks$series]
-  vmarks$series <- factor(vmarks$series, levels = present)
+  list(
+    vmarks   = vmarks,
+    li_names = li_names,
+    levels   = c("PLE", "MPLE", "LI_05", "LI_10", "LI_50"),
+    cols     = c(PLE = "blue", MPLE = "blue", LI_05 = "green3",
+                 LI_10 = "orange", LI_50 = "red"),
+    ltys     = c(PLE = "solid", MPLE = "dashed", LI_05 = "dashed",
+                 LI_10 = "dotted", LI_50 = "dotdash")
+  )
+}
 
-  cols <- c(PLE = "blue", MPLE = "blue", LI_05 = "green3",
-            LI_10 = "orange", LI_50 = "red")
-  ltys <- c(PLE = "solid", MPLE = "dashed", LI_05 = "dashed",
-            LI_10 = "dotted", LI_50 = "dotdash")
+
+#' Create MPL Plot
+#'
+#' @keywords internal
+#' @noRd
+create_mpl_plot <- function(mpl_output, fit, n, fh) {
+  tc_seq <- (n + 1):(n + fh)
+
+  df_plot <- data.frame(
+    tc = tc_seq,
+    log_mpl = mpl_output$LL
+  )
+
+  mk      <- .mpl_markers(mpl_output, fit)
+  vmarks  <- mk$vmarks
+  present <- mk$levels[mk$levels %in% vmarks$series]
+  vmarks$series <- factor(vmarks$series, levels = present)
 
   ggplot2::ggplot(df_plot, ggplot2::aes(x = tc, y = log_mpl)) +
     ggplot2::geom_point() +
@@ -404,12 +420,69 @@ create_mpl_plot <- function(mpl_output, fit, n, fh) {
                              color = series, linetype = series),
       key_glyph = "path"
     ) +
-    ggplot2::scale_color_manual(name = NULL, values = cols, breaks = present) +
-    ggplot2::scale_linetype_manual(name = NULL, values = ltys, breaks = present) +
+    ggplot2::scale_color_manual(name = NULL, values = mk$cols, breaks = present) +
+    ggplot2::scale_linetype_manual(name = NULL, values = mk$ltys, breaks = present) +
     ggplot2::labs(
       x = "Critical Time (tc)",
       y = "Log Modified Profile Likelihood",
       title = "Modified Profile Likelihood"
+    ) +
+    ggplot2::theme_minimal() +
+    overlay_legend_theme(
+      inside = c(0.99, 0.99),
+      justification = c(1, 1)
+    )
+}
+
+
+#' Create the relative MPL plot
+#'
+#' The modified profile likelihood relative to its maximum,
+#' `R = log MPL - max log MPL`, zoomed to the band the likelihood-interval
+#' cutoffs live in. Its absolute level carries no information, whereas `R` is
+#' what the intervals test: each interval is where `R` stays above
+#' `log(cutoff)`. The cutoffs are drawn as horizontal lines, so an interval can
+#' be read off where the curve crosses one, and a cutoff the curve never reaches
+#' still shows that.
+#'
+#' @param cutoff Numeric, the likelihood-interval cutoffs of the fit.
+#' @param pad Numeric, how far below the lowest cutoff the view extends.
+#'
+#' @keywords internal
+#' @noRd
+create_mpl_relative_plot <- function(mpl_output, fit, n, cutoff, pad = 1.2) {
+  mk       <- .mpl_markers(mpl_output, fit)
+  vmarks   <- mk$vmarks
+  h_series <- mk$li_names[seq_along(cutoff)]
+  present  <- mk$levels[mk$levels %in% c(vmarks$series, h_series)]
+  vmarks$series <- factor(vmarks$series, levels = present)
+  hmarks <- data.frame(yintercept = log(cutoff),
+                       series = factor(h_series, levels = present))
+
+  df_plot <- data.frame(tc = (n + 1):(n + length(mpl_output$R)),
+                        R  = mpl_output$R)
+
+  ggplot2::ggplot(df_plot, ggplot2::aes(x = tc, y = R)) +
+    ggplot2::geom_point(size = 0.5, na.rm = TRUE) +
+    ggplot2::geom_hline(
+      data = hmarks,
+      mapping = ggplot2::aes(yintercept = yintercept,
+                             color = series, linetype = series),
+      linewidth = 0.4
+    ) +
+    ggplot2::geom_vline(
+      data = vmarks,
+      mapping = ggplot2::aes(xintercept = xintercept,
+                             color = series, linetype = series),
+      key_glyph = "path"
+    ) +
+    ggplot2::scale_color_manual(name = NULL, values = mk$cols, breaks = present) +
+    ggplot2::scale_linetype_manual(name = NULL, values = mk$ltys, breaks = present) +
+    ggplot2::coord_cartesian(ylim = c(min(log(cutoff)) - pad, 0.4)) +
+    ggplot2::labs(
+      x = "Critical Time (tc)",
+      y = "Relative log MPL",
+      title = "Modified Profile Likelihood (relative)"
     ) +
     ggplot2::theme_minimal() +
     overlay_legend_theme(
@@ -1084,7 +1157,14 @@ fit_plot <- function(fit, time_ID, log_price, mode = 0, T2 = NULL, T1 = NULL,
 #' @param point Numeric vector of length 2, optional point to highlight.
 #' @param mode Integer, LPPLS model mode (default 0).
 #'
-#' @return List with elements: contour_plot, surface_plot (both may be NULL).
+#' @return A list with three elements:
+#'   \describe{
+#'     \item{contour_plot}{A `ggplot2` contour plot, or `NULL` when `cp = FALSE`.}
+#'     \item{surface_plot}{A `plotly` 3-D surface, or `NULL` when `sp = FALSE`.}
+#'     \item{contour_data}{The SSE grid itself, always returned: a list with the
+#'       grid values `x` and `y` of the two parameters and the matrix `z` of SSE
+#'       values, with `z[j, i]` the SSE at `(x[i], y[j])`.}
+#'   }
 #'
 #' @examples
 #' \dontrun{

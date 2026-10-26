@@ -6,16 +6,16 @@
 \usage{
 \method{plot}{lppls_fit}(
   x,
-  which = c("basin", "param_basin", "fit", "mpl", "param", "matrix", "trace_mo",
-    "trace_bm", "trace_bo", "contour", "surface"),
+  which = c("basin", "param_basin", "fit", "mpl", "mpl_relative", "param", "matrix",
+    "trace_mo", "trace_bm", "trace_bo", "contour", "surface"),
   ...
 )
 }
 \arguments{
 \item{x}{An object of class \code{"lppls_fit"} from \code{\link[=fit_lppls]{fit_lppls()}}.}
 
-\item{which}{Which plot to return. \code{"basin"} is drawn on demand; the rest are
-returned from the fit.}
+\item{which}{Which plot to return. \code{"basin"}, \code{"param_basin"} and
+\code{"mpl_relative"} are drawn on demand; the rest are returned from the fit.}
 
 \item{...}{Ignored.}
 }
@@ -23,10 +23,11 @@ returned from the fit.}
 A \code{ggplot2} object (a \code{plotly} object for \code{"contour"}/\code{"surface"}).
 }
 \description{
-Returns one of the plots attached to the fit, or draws the basin view. The
+Returns one of the plots attached to the fit, or draws one on demand. The
 attached ones exist only if they were asked for at fit time (\code{fp}, \code{pp}, \code{mp},
-\code{tp}, \code{mpl_plot}, \code{cp}, \code{sp}); \code{"basin"} is always available, since it is
-built from the per-fit table.
+\code{tp}, \code{mpl_plot}, \code{cp}, \code{sp}). \code{"basin"}, \code{"param_basin"} and
+\code{"mpl_relative"} are drawn from what the fit stores anyway, so they need
+nothing asked for in advance.
 }
 \details{
 \code{"basin"} plots each fit's SSE against its \code{tc}, split at the gap
@@ -37,6 +38,14 @@ two clusters separate visibly, which is invisible in the point estimate.
 every parameter, not just the objective. It answers what \code{"basin"} cannot:
 \emph{which} parameters the inferior fits differ in -- typically \code{omega} jumping
 between local optima while \code{m} stays pinned at its bound.
+
+\code{"mpl_relative"} draws the modified profile likelihood relative to its
+maximum, \eqn{R = \log \mathrm{MPL} - \max \log \mathrm{MPL}}{R = log MPL - max log MPL},
+zoomed to the band the likelihood-interval cutoffs live in, with each cutoff
+drawn as a horizontal line. The absolute level of the log MPL carries no
+information, whereas \eqn{R} is what the intervals test, so each interval can
+be read off where the curve crosses its cutoff. It needs a fit made with
+\code{mode = "MPL"}.
 }
 \seealso{
 \code{\link[=fit_lppls]{fit_lppls()}}, \code{\link[=print.lppls_fit]{print.lppls_fit()}}

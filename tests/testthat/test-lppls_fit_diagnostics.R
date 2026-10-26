@@ -196,6 +196,45 @@ test_that("plot returns the stored components and errors on absent ones", {
 })
 
 
+test_that("mpl_relative draws R on the tc grid, with the cutoffs and the markers", {
+  f <- mpl_fit()                       # no plots requested at fit time
+  p <- plot(f, "mpl_relative")
+  expect_s3_class(p, "ggplot")
+
+  ## The curve is mpl_output$R, one point per candidate tc.
+  expect_equal(p$data$R, f$mpl_output$R)
+  expect_equal(p$data$tc, f$fit_args$n + seq_along(f$mpl_output$R))
+
+  ## One horizontal line per cutoff, at log(cutoff).
+  expect_equal(p$layers[[2]]$data$yintercept, log(f$fit_args$mpl_cutoff))
+
+  ## The point estimates lead the vertical markers, as in the absolute plot.
+  v <- p$layers[[3]]$data
+  expect_equal(v$xintercept[1:2], c(f$fit[[1]]$tc, f$mpl_output$tc_hat_mpl))
+  expect_identical(as.character(v$series[1:2]), c("PLE", "MPLE"))
+
+  ## The view is the band the cutoffs live in.
+  expect_equal(p$coordinates$limits$y,
+               c(min(log(f$fit_args$mpl_cutoff)) - 1.2, 0.4))
+})
+
+
+test_that("mpl_relative draws the same markers as the absolute MPL plot", {
+  f  <- mpl_fit(mpl_plot = TRUE)
+  ab <- plot(f, "mpl")$layers[[2]]$data
+  re <- plot(f, "mpl_relative")$layers[[3]]$data
+  expect_equal(re$xintercept, ab$xintercept)
+  expect_identical(as.character(re$series), as.character(ab$series))
+})
+
+
+test_that("mpl_relative needs a modified profile likelihood", {
+  f <- mpl_fit()
+  f$mpl_output <- NULL
+  expect_error(plot(f, "mpl_relative"), "mode = \"MPL\"")
+})
+
+
 test_that("the basin plot labels each fit and is always available", {
   f <- mpl_fit()                       # no plots requested at fit time
   p <- plot(f, "basin")

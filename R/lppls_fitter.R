@@ -1483,10 +1483,11 @@ print.lppls_fit <- function(x, ...) {
 
 #' Plot an LPPLS calibration
 #'
-#' Returns one of the plots attached to the fit, or draws the basin view. The
+#' Returns one of the plots attached to the fit, or draws one on demand. The
 #' attached ones exist only if they were asked for at fit time (`fp`, `pp`, `mp`,
-#' `tp`, `mpl_plot`, `cp`, `sp`); `"basin"` is always available, since it is
-#' built from the per-fit table.
+#' `tp`, `mpl_plot`, `cp`, `sp`). `"basin"`, `"param_basin"` and
+#' `"mpl_relative"` are drawn from what the fit stores anyway, so they need
+#' nothing asked for in advance.
 #'
 #' `"basin"` plots each fit's SSE against its `tc`, split at the gap
 #' [print.lppls_fit()] reports. When a search has failed on part of the grid the
@@ -1497,9 +1498,17 @@ print.lppls_fit <- function(x, ...) {
 #' *which* parameters the inferior fits differ in -- typically `omega` jumping
 #' between local optima while `m` stays pinned at its bound.
 #'
+#' `"mpl_relative"` draws the modified profile likelihood relative to its
+#' maximum, \eqn{R = \log \mathrm{MPL} - \max \log \mathrm{MPL}}{R = log MPL - max log MPL},
+#' zoomed to the band the likelihood-interval cutoffs live in, with each cutoff
+#' drawn as a horizontal line. The absolute level of the log MPL carries no
+#' information, whereas \eqn{R} is what the intervals test, so each interval can
+#' be read off where the curve crosses its cutoff. It needs a fit made with
+#' `mode = "MPL"`.
+#'
 #' @param x An object of class `"lppls_fit"` from [fit_lppls()].
-#' @param which Which plot to return. `"basin"` is drawn on demand; the rest are
-#'   returned from the fit.
+#' @param which Which plot to return. `"basin"`, `"param_basin"` and
+#'   `"mpl_relative"` are drawn on demand; the rest are returned from the fit.
 #' @param ... Ignored.
 #'
 #' @return A `ggplot2` object (a `plotly` object for `"contour"`/`"surface"`).
@@ -1509,10 +1518,23 @@ print.lppls_fit <- function(x, ...) {
 #' @importFrom ggplot2 ggplot aes geom_point scale_color_manual labs theme_minimal
 #' @export
 plot.lppls_fit <- function(x, which = c("basin", "param_basin", "fit", "mpl",
-                                        "param", "matrix", "trace_mo",
-                                        "trace_bm", "trace_bo",
+                                        "mpl_relative", "param", "matrix",
+                                        "trace_mo", "trace_bm", "trace_bo",
                                         "contour", "surface"), ...) {
   which <- match.arg(which)
+
+  if (which == "mpl_relative") {
+    if (is.null(x$mpl_output)) {
+      stop("This fit has no modified profile likelihood; re-run fit_lppls() ",
+           "with mode = \"MPL\".")
+    }
+    a <- x$fit_args
+    ## Fits made before fit_lppls() recorded its settings: the tc grid starts at
+    ## n + 1, and the cutoffs fall back to fit_lppls()'s default.
+    n      <- if (is.null(a$n)) min(x$fit[[2]]$tc) - 1 else a$n
+    cutoff <- if (is.null(a$mpl_cutoff)) c(0.05, 0.1, 0.5) else a$mpl_cutoff
+    return(create_mpl_relative_plot(x$mpl_output, x$fit, n, cutoff))
+  }
 
   if (!which %in% c("basin", "param_basin")) {
     slot <- c(fit = "fit_plot", mpl = "mpl_plot", param = "param_plot",

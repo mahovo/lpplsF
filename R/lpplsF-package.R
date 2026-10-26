@@ -109,7 +109,7 @@ utils::globalVariables(c(
   ## Lagrange diagnostics
   "chi_sq_np", "chi_sq_lambda",
   ## MPL, SSE-surface and trace plots
-  "log_mpl", "xintercept", "series", "sse", "vals", "log_p", "y",
+  "log_mpl", "R", "xintercept", "yintercept", "series", "sse", "vals", "log_p", "y",
   ## noise-sweep tables and their plots
   "sd", "param", "lo", "hi", "band"
 ))

@@ -15,3 +15,7 @@
 ^vignettes/figure$
 ^vignettes/.*_files$
 ^vignettes/.*\.(tex|log)$
+^vignettes/articles$
+^_pkgdown\.yml$
+^docs$
+^pkgdown$

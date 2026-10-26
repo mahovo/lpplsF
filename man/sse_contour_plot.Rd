@@ -42,7 +42,14 @@ sse_contour_plot(
 \item{mode}{Integer, LPPLS model mode (default 0).}
 }
 \value{
-List with elements: contour_plot, surface_plot (both may be NULL).
+A list with three elements:
+\describe{
+\item{contour_plot}{A \code{ggplot2} contour plot, or \code{NULL} when \code{cp = FALSE}.}
+\item{surface_plot}{A \code{plotly} 3-D surface, or \code{NULL} when \code{sp = FALSE}.}
+\item{contour_data}{The SSE grid itself, always returned: a list with the
+grid values \code{x} and \code{y} of the two parameters and the matrix \code{z} of SSE
+values, with \code{z[j, i]} the SSE at \verb{(x[i], y[j])}.}
+}
 }
 \description{
 Generate a contour plot of the sum of squared errors as a function of
