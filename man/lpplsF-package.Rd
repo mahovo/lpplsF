@@ -111,6 +111,7 @@ Quantitative Finance, 17(8), 1167-1186.
 \seealso{
 Useful links:
 \itemize{
+  \item \url{https://mahovo.github.io/lpplsF/}
   \item \url{https://github.com/mahovo/lpplsF}
   \item Report bugs at \url{https://github.com/mahovo/lpplsF/issues}
 }
