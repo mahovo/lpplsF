@@ -148,6 +148,8 @@ bubbles. Quantitative Finance, 17(8), 1167-1186.
 
 Useful links:
 
+- <https://mahovo.github.io/lpplsF/>
+
 - <https://github.com/mahovo/lpplsF>
 
 - Report bugs at <https://github.com/mahovo/lpplsF/issues>

@@ -13,6 +13,23 @@ for detecting and analysing financial bubbles. The package is based on:
     inference and interval forecast of the burst of financial bubbles.
     *Quantitative Finance*.
 
+## Documentation
+
+The package website, <https://mahovo.github.io/lpplsF/>, has the
+reference for every function, the package overview as its [Get
+started](https://mahovo.github.io/lpplsF/articles/lpplsF.html) page, and
+a [guided
+tour](https://mahovo.github.io/lpplsF/articles/lpplsF_guide.html) that
+works through every function on simulated and real data, with
+interactive SSE landscapes.
+
+The overview also ships with the package as a PDF vignette:
+
+``` r
+
+vignette("lpplsF")
+```
+
 ## Installation
 
 ``` r
@@ -105,11 +122,6 @@ suggests D ≥ 0.8 for valid bubble detection.
 - tidyr
 - symengine
 - plotly
-
-## Development
-
-See [DEVELOPMENT.md](https://mahovo.github.io/lpplsF/DEVELOPMENT.md) for
-development workflow using Doom Emacs.
 
 ## License
 
