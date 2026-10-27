@@ -150,7 +150,11 @@ will be overwritten.</p></dd>
 <dt id="arg-num-searches">num_searches<a class="anchor" aria-label="anchor" href="#arg-num-searches"></a></dt>
 <dd><p>Integer, number of times to repeat the optimization wrt
 <code>tc</code>, <code>m</code> and <code>omega</code>. First iteration uses given initial values. Any
-subsequent iterations use random initial values.</p></dd>
+subsequent iterations use random initial values. In modes <code>"F2"</code> and
+<code>"MPL"</code> these are seeded internally, so the result does not depend on the
+state of the random number generator, and the caller's random number
+stream is left as it was. In mode <code>"F1"</code> they are drawn from the caller's
+stream.</p></dd>
 
 
 <dt id="arg-mode">mode<a class="anchor" aria-label="anchor" href="#arg-mode"></a></dt>

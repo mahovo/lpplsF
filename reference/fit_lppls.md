@@ -106,7 +106,11 @@ fit_lppls(
 
   Integer, number of times to repeat the optimization wrt `tc`, `m` and
   `omega`. First iteration uses given initial values. Any subsequent
-  iterations use random initial values.
+  iterations use random initial values. In modes `"F2"` and `"MPL"`
+  these are seeded internally, so the result does not depend on the
+  state of the random number generator, and the caller's random number
+  stream is left as it was. In mode `"F1"` they are drawn from the
+  caller's stream.
 
 - mode:
 
