@@ -370,28 +370,20 @@
 #' \doi{10.1016/S0378-4371(02)01535-2}
 #'
 #' @examples
-#' \dontrun{
-#' # Generate synthetic bubble data
-#' set.seed(123)
-#' t <- 1:200
-#' true_params <- list(A = 4, B = -0.015, C1 = 0.002, C2 = 0.001,
-#'                     tc = 250, m = 0.5, omega = 9)
-#' log_p <- eval_lppls(t, true_params$A, true_params$B, true_params$C1,
-#'                    true_params$C2, true_params$tc, true_params$m,
-#'                    true_params$omega) + rnorm(200, 0, 0.01)
+#' ## A simulated bubble: 200 observations of an LPPLS path whose critical time
+#' ## is t = 221, plus a little noise
+#' set.seed(4)
+#' t     <- 1:200
+#' log_p <- eval_lppls(t, A = 8, B = -0.025, C1 = 0.0015, C2 = 0.001,
+#'                     tc = 221, m = 0.6, omega = 8) + rnorm(200, sd = 0.01)
 #'
-#' # Fit model
-#' result <- fit_lppls(log_price = log_p,
-#'                  fh = 100, hold_out = 0,
-#'                  tc_init = 250, mode = "F2",
-#'                  num_searches = 10, fp = TRUE)
+#' ## Calibrate by modified profile likelihood, scanning tc over t = 201..230
+#' fit <- fit_lppls(log_p, fh = 30, mode = "MPL",
+#'                  m_init = 0.5, o_init = 8, num_searches = 2, fp = TRUE)
 #'
-#' # View best fit parameters
-#' print(result$fit[[1]])
-#'
-#' # View fit plot
-#' print(result$fit_plot)
-#' }
+#' fit                        # the estimate, and the diagnostics that qualify it
+#' plot(fit, "fit")           # attached at fit time by fp = TRUE
+#' plot(fit, "mpl_relative")  # drawn on demand
 #'
 #' @seealso [print.lppls_fit()], [summary.lppls_fit()], [plot.lppls_fit()] and
 #'   [lppls_curvature()] for diagnosing the returned fit; [lppls_rolling()] to
@@ -600,16 +592,7 @@ fit_lppls <- function(
     ## random number stream, so put it back on exit and leave no trace on it.
     ## (F1 seeds nothing: it draws its restarts from the caller's stream, as
     ## any random function does.)
-    old_seed <- if (exists(".Random.seed", envir = globalenv(), inherits = FALSE)) {
-      get(".Random.seed", envir = globalenv(), inherits = FALSE)
-    }
-    on.exit({
-      if (!is.null(old_seed)) {
-        assign(".Random.seed", old_seed, envir = globalenv())
-      } else if (exists(".Random.seed", envir = globalenv(), inherits = FALSE)) {
-        rm(".Random.seed", envir = globalenv())
-      }
-    }, add = TRUE)
+    .preserve_seed()
 
     ## Accumulators for the tc loop.
     ##

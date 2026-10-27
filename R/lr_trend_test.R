@@ -59,7 +59,8 @@
 #' @param hac Logical, whether to also compute the Newey--West HAC \eqn{p}-value
 #'   (default `TRUE`).
 #' @param seed Integer or `NULL`; a base seed that makes the bootstrap paths
-#'   reproducible.
+#'   reproducible. The caller's random number stream is left as it was. When
+#'   `NULL`, the paths are drawn from the caller's stream.
 #'
 #' @return An object of class `"lr_trend_test"`: a list with the observed slope `beta1`
 #'   and `lambda` (\eqn{= -\beta_1}); the naive `p_ols` / `se_ols`; the HAC `p_hac` /
@@ -71,10 +72,28 @@
 #' @seealso [lppls_lagrange()], [lppls_rolling()]
 #'
 #' @examples
-#' \dontrun{
-#' roll <- lppls_rolling(log_p, t1_seq = seq(1, 1001, 25), hold_out = 100, fh = 150,
-#'                       fit_args = list(mode = "F2", num_searches = 1))
-#' lr_trend_test(roll, log_price = log_p, B = 199, cores = 4, seed = 1)
+#' \donttest{
+#' if (requireNamespace("tsgarch", quietly = TRUE) &&
+#'     requireNamespace("xts", quietly = TRUE) &&
+#'     requireNamespace("sandwich", quietly = TRUE)) {
+#'   set.seed(3630)
+#'   N     <- 300
+#'   log_p <- eval_lppls(seq_len(N), A = 8, B = -0.025, C1 = 0.0015, C2 = 0.001,
+#'                       tc = N + 1, m = 0.6, omega = 8) + rnorm(N) * 0.01
+#'   roll <- lppls_rolling(
+#'     log_price = log_p,
+#'     t1_seq    = seq(from = 1, by = 20, length.out = 8),
+#'     hold_out  = 0, fh = 30,
+#'     fit_args  = list(lower = c(0.1, 6, -0.03, 0.8),
+#'                      upper = c(0.9, 13, -1e-14, 1e6),
+#'                      m_init = 0.5, o_init = 8, num_searches = 1)
+#'   )
+#'
+#'   ## A single-regime series has no real trend, so the test should find none.
+#'   ## Every bootstrap replicate repeats the rolling calibration; B = 9 keeps
+#'   ## the example quick, but use 199 or more in practice.
+#'   lr_trend_test(roll, log_price = log_p, B = 9, seed = 1)
+#' }
 #' }
 #'
 #' @export
@@ -98,6 +117,10 @@ lr_trend_test <- function(rolling, log_price, B = 199, cores = 1L,
     stop("lr_trend_test() needs package(s): ", paste(miss, collapse = ", "),
          if ("sandwich" %in% miss) " (or set hac = FALSE)." else ".")
   }
+
+  ## Seeding the bootstrap resets the caller's random number stream; put it
+  ## back on exit.
+  if (!is.null(seed)) .preserve_seed()
 
   ## observed bias trend (chi^2_np ~ T1) ------------------------------------
   lag_obs <- lppls_lagrange(rolling, p = 0)

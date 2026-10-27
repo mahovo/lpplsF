@@ -64,21 +64,26 @@
 #'   [rolling_param_plot()]
 #'
 #' @examples
-#' \dontrun{
+#' ## A simulated bubble: 300 observations of an LPPLS path whose critical time
+#' ## is t = 301
 #' set.seed(3630)
-#' N <- 2000
+#' N     <- 300
 #' log_p <- eval_lppls(seq_len(N), A = 8, B = -0.025, C1 = 0.0015, C2 = 0.001,
-#'                     tc = N + 1, m = 0.6, omega = 8) + rnorm(N) * 0.05
+#'                     tc = N + 1, m = 0.6, omega = 8) + rnorm(N) * 0.01
+#'
+#' ## Five windows whose start T1 rolls forward from 1 to 101, all ending at
+#' ## T2 = 280. MPL mode gives the likelihood intervals rolling_tc_plot() draws.
 #' roll <- lppls_rolling(
 #'   log_price = log_p,
-#'   t1_seq    = seq(from = 1, by = 10, length.out = 101),
-#'   hold_out  = 100, fh = 150,
+#'   t1_seq    = seq(from = 1, by = 25, length.out = 5),
+#'   hold_out  = 20, fh = 30,
 #'   fit_args  = list(lower = c(0.1, 6, -0.03, 0.8),
 #'                    upper = c(0.9, 13, -1e-14, 1e6),
-#'                    m_init = 0.2, o_init = 12, num_searches = 1)
+#'                    m_init = 0.5, o_init = 8, num_searches = 1,
+#'                    mode = "MPL")
 #' )
-#' print(rolling_tc_plot(roll))
-#' }
+#' roll
+#' rolling_tc_plot(roll)
 #'
 #' @export
 lppls_rolling <- function(

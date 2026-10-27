@@ -32,7 +32,8 @@ are \code{NA} and \code{\link[=noise_tc_plot]{noise_tc_plot()}} has nothing to d
 \item{seed}{Optional integer. When supplied, the generator is re-seeded with
 it before \emph{each} level, so every level sees the same innovations scaled
 differently and the comparison across levels is not confounded by the draw.
-When \code{NULL} (default) the levels draw independently.}
+The caller's random number stream is left as it was. When \code{NULL} (default)
+the levels draw independently, from the caller's stream.}
 
 \item{fb}{Logical, report progress per level (default \code{FALSE}).}
 }

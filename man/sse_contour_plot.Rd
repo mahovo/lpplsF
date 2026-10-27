@@ -56,13 +56,18 @@ Generate a contour plot of the sum of squared errors as a function of
 two parameters, with the remaining parameters fixed.
 }
 \examples{
-\dontrun{
-# Create contour plot for m vs omega
-par <- list(tc = 250, A = 4, B = -0.015, C1 = 0.002, C2 = 0.001)
-vars <- list(x = "m", y = "omega")
-result <- sse_contour_plot(log_p, t, par, vars,
+## A simulated bubble whose critical time is t = 221
+set.seed(4)
+t     <- 1:200
+log_p <- eval_lppls(t, A = 8, B = -0.025, C1 = 0.0015, C2 = 0.001,
+                    tc = 221, m = 0.6, omega = 8) + rnorm(200, sd = 0.01)
+
+## The SSE over (m, omega), with the other parameters held at their true
+## values
+fixed  <- list(tc = 221, A = 8, B = -0.025, C1 = 0.0015, C2 = 0.001)
+result <- sse_contour_plot(log_p, t, fixed, vars = list(x = "m", y = "omega"),
                            lower = c(0.1, 6), upper = c(0.9, 13))
-print(result$contour_plot)
-}
+result$contour_plot
+dim(result$contour_data$z)   # the grid itself
 
 }

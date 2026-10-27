@@ -447,3 +447,35 @@ validate_params <- function(params, lower, upper) {
   }
   d
 }
+
+
+#' Restore the caller's random number stream on exit
+#'
+#' For a function that seeds the generator with [set.seed()] so its own results
+#' are reproducible. Call this before the first `set.seed()`, and the caller's
+#' stream is put back as it was when that function exits, so the seeding leaves
+#' no trace on it. A stream that did not exist yet, because no random number had
+#' been drawn in the session, is removed again.
+#'
+#' @param envir The frame of the function whose exit restores the stream.
+#'
+#' @keywords internal
+#' @noRd
+.preserve_seed <- function(envir = parent.frame()) {
+  old <- if (exists(".Random.seed", envir = globalenv(), inherits = FALSE)) {
+    get(".Random.seed", envir = globalenv(), inherits = FALSE)
+  }
+  ## Register the restore on the caller's frame, so it runs when that function
+  ## exits rather than when this one does.
+  do.call(on.exit, list(bquote(.restore_seed(.(old))), add = TRUE), envir = envir)
+  invisible(NULL)
+}
+
+## Put back a stream saved by .preserve_seed(); NULL means there was none.
+.restore_seed <- function(old) {
+  if (!is.null(old)) {
+    assign(".Random.seed", old, envir = globalenv())
+  } else if (exists(".Random.seed", envir = globalenv(), inherits = FALSE)) {
+    rm(".Random.seed", envir = globalenv())
+  }
+}

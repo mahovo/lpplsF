@@ -35,7 +35,8 @@
 #' @param seed Optional integer. When supplied, the generator is re-seeded with
 #'   it before *each* level, so every level sees the same innovations scaled
 #'   differently and the comparison across levels is not confounded by the draw.
-#'   When `NULL` (default) the levels draw independently.
+#'   The caller's random number stream is left as it was. When `NULL` (default)
+#'   the levels draw independently, from the caller's stream.
 #' @param fb Logical, report progress per level (default `FALSE`).
 #'
 #' @return A data.frame of class `"lppls_noise_sweep"`, one row per entry of
@@ -88,6 +89,9 @@ lppls_noise_sweep <- function(signal, sd_seq, noise = stats::rnorm,
 
   n_obs <- length(signal)
   rows  <- vector("list", length(sd_seq))
+
+  ## Re-seeding resets the caller's random number stream; put it back on exit.
+  if (!is.null(seed)) .preserve_seed()
 
   for (i in seq_along(sd_seq)) {
     if (fb) {
