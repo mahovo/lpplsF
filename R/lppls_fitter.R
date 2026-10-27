@@ -56,7 +56,11 @@
 #'   will be overwritten.
 #' @param num_searches Integer, number of times to repeat the optimization wrt
 #'   `tc`, `m` and `omega`. First iteration uses given initial values. Any
-#'   subsequent iterations use random initial values.
+#'   subsequent iterations use random initial values. In modes `"F2"` and
+#'   `"MPL"` these are seeded internally, so the result does not depend on the
+#'   state of the random number generator, and the caller's random number
+#'   stream is left as it was. In mode `"F1"` they are drawn from the caller's
+#'   stream.
 #' @param mode Character, optimization mode:
 #'   \describe{
 #'     \item{F1}{Optimize wrt `tc`, `m`, `omega` simultaneously}
@@ -393,7 +397,7 @@
 #'   [lppls_curvature()] for diagnosing the returned fit; [lppls_rolling()] to
 #'   recalibrate over a rolling window.
 #'
-#' @importFrom dplyr arrange filter
+#' @importFrom dplyr arrange
 #' @importFrom tibble tibble
 #' @importFrom tidyr gather
 #' @importFrom stats optim runif
@@ -590,6 +594,22 @@ fit_lppls <- function(
   ## MODE F2/MPL: Two-stage optimization =====================================
   if (mode == "F2" || mode == "MPL") { ## "F2"-mode output needed for "MPL"-mode
     if (fb) message("Mode: F2/MPL - Two-stage optimization")
+
+    ## Each search below, and the trace replay further down, is seeded with
+    ## set.seed() so the calibration is reproducible. That resets the caller's
+    ## random number stream, so put it back on exit and leave no trace on it.
+    ## (F1 seeds nothing: it draws its restarts from the caller's stream, as
+    ## any random function does.)
+    old_seed <- if (exists(".Random.seed", envir = globalenv(), inherits = FALSE)) {
+      get(".Random.seed", envir = globalenv(), inherits = FALSE)
+    }
+    on.exit({
+      if (!is.null(old_seed)) {
+        assign(".Random.seed", old_seed, envir = globalenv())
+      } else if (exists(".Random.seed", envir = globalenv(), inherits = FALSE)) {
+        rm(".Random.seed", envir = globalenv())
+      }
+    }, add = TRUE)
 
     ## Accumulators for the tc loop.
     ##

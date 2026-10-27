@@ -80,7 +80,11 @@ will be overwritten.}
 
 \item{num_searches}{Integer, number of times to repeat the optimization wrt
 \code{tc}, \code{m} and \code{omega}. First iteration uses given initial values. Any
-subsequent iterations use random initial values.}
+subsequent iterations use random initial values. In modes \code{"F2"} and
+\code{"MPL"} these are seeded internally, so the result does not depend on the
+state of the random number generator, and the caller's random number
+stream is left as it was. In mode \code{"F1"} they are drawn from the caller's
+stream.}
 
 \item{mode}{Character, optimization mode:
 \describe{
