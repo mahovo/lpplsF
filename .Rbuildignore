@@ -17,5 +17,6 @@
 ^vignettes/.*\.(tex|log)$
 ^vignettes/articles$
 ^_pkgdown\.yml$
+^cran-comments\.md$
 ^docs$
 ^pkgdown$
