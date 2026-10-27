@@ -99,7 +99,8 @@ are <code>NA</code> and <code><a href="noise_tc_plot.html">noise_tc_plot()</a></
 <dd><p>Optional integer. When supplied, the generator is re-seeded with
 it before <em>each</em> level, so every level sees the same innovations scaled
 differently and the comparison across levels is not confounded by the draw.
-When <code>NULL</code> (default) the levels draw independently.</p></dd>
+The caller's random number stream is left as it was. When <code>NULL</code> (default)
+the levels draw independently, from the caller's stream.</p></dd>
 
 
 <dt id="arg-fb">fb<a class="anchor" aria-label="anchor" href="#arg-fb"></a></dt>

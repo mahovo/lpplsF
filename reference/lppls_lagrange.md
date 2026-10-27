@@ -105,22 +105,34 @@ objectively determining financial bubbles' inceptions. Physica A, 524,
 ## Examples
 
 ``` r
-if (FALSE) { # \dontrun{
 set.seed(3630)
-N <- 2000
+N     <- 300
 log_p <- eval_lppls(seq_len(N), A = 8, B = -0.025, C1 = 0.0015, C2 = 0.001,
-                    tc = N + 1, m = 0.6, omega = 8) + rnorm(N) * 0.05
+                    tc = N + 1, m = 0.6, omega = 8) + rnorm(N) * 0.01
 roll <- lppls_rolling(
   log_price = log_p,
-  t1_seq    = seq(from = 1, by = 10, length.out = 101),
-  hold_out  = 100, fh = 150,
+  t1_seq    = seq(from = 1, by = 25, length.out = 5),
+  hold_out  = 20, fh = 30,
   fit_args  = list(lower = c(0.1, 6, -0.03, 0.8),
                    upper = c(0.9, 13, -1e-14, 1e6),
-                   m_init = 0.2, o_init = 12, num_searches = 1)
+                   m_init = 0.5, o_init = 8, num_searches = 1)
 )
+
+## The series is LPPLS throughout, so every window is already LPPLS and there
+## is no bias trend to remove: lambda comes out close to zero. On a series
+## whose bubble starts part-way through, chi^2_np falls as T1 approaches the
+## start, and lambda is positive.
 lag <- lppls_lagrange(roll, p = 0)
-lag$t1_star
-print(chi_sq_np_plot(lag))
-print(chi_sq_lambda_plot(lag))
-} # }
+lag
+#> LPPLS Lagrange regularization
+#>   Windows (T1):  5  (from 1 to 101)
+#>   T2 (cal. end): 280
+#>   p (denominator correction): 0
+#>   Trend: chi^2_np = 9.9863e-05 + (2.58632e-08) * T1
+#>   lambda* = -beta1 = -2.58632e-08
+#>   Optimal T1* = 26
+chi_sq_np_plot(lag)
+
+chi_sq_lambda_plot(lag)
+
 ```

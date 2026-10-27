@@ -53,7 +53,8 @@ lppls_noise_sweep(
   Optional integer. When supplied, the generator is re-seeded with it
   before *each* level, so every level sees the same innovations scaled
   differently and the comparison across levels is not confounded by the
-  draw. When `NULL` (default) the levels draw independently.
+  draw. The caller's random number stream is left as it was. When `NULL`
+  (default) the levels draw independently, from the caller's stream.
 
 - fb:
 

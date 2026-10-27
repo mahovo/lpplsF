@@ -147,24 +147,36 @@ determining financial bubbles' inceptions. Physica A, 524, 661-675.
 
     <div class="section level2">
     <h2 id="ref-examples">Examples<a class="anchor" aria-label="anchor" href="#ref-examples"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw">if</span> <span class="op">(</span><span class="cn">FALSE</span><span class="op">)</span> <span class="op">{</span> <span class="co"># \dontrun{</span></span></span>
-<span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/base/Random.html" class="external-link">set.seed</a></span><span class="op">(</span><span class="fl">3630</span><span class="op">)</span></span></span>
-<span class="r-in"><span><span class="va">N</span> <span class="op">&lt;-</span> <span class="fl">2000</span></span></span>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/base/Random.html" class="external-link">set.seed</a></span><span class="op">(</span><span class="fl">3630</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="va">N</span>     <span class="op">&lt;-</span> <span class="fl">300</span></span></span>
 <span class="r-in"><span><span class="va">log_p</span> <span class="op">&lt;-</span> <span class="fu"><a href="eval_lppls.html">eval_lppls</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/seq.html" class="external-link">seq_len</a></span><span class="op">(</span><span class="va">N</span><span class="op">)</span>, A <span class="op">=</span> <span class="fl">8</span>, B <span class="op">=</span> <span class="op">-</span><span class="fl">0.025</span>, C1 <span class="op">=</span> <span class="fl">0.0015</span>, C2 <span class="op">=</span> <span class="fl">0.001</span>,</span></span>
-<span class="r-in"><span>                    tc <span class="op">=</span> <span class="va">N</span> <span class="op">+</span> <span class="fl">1</span>, m <span class="op">=</span> <span class="fl">0.6</span>, omega <span class="op">=</span> <span class="fl">8</span><span class="op">)</span> <span class="op">+</span> <span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">N</span><span class="op">)</span> <span class="op">*</span> <span class="fl">0.05</span></span></span>
+<span class="r-in"><span>                    tc <span class="op">=</span> <span class="va">N</span> <span class="op">+</span> <span class="fl">1</span>, m <span class="op">=</span> <span class="fl">0.6</span>, omega <span class="op">=</span> <span class="fl">8</span><span class="op">)</span> <span class="op">+</span> <span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">N</span><span class="op">)</span> <span class="op">*</span> <span class="fl">0.01</span></span></span>
 <span class="r-in"><span><span class="va">roll</span> <span class="op">&lt;-</span> <span class="fu"><a href="lppls_rolling.html">lppls_rolling</a></span><span class="op">(</span></span></span>
 <span class="r-in"><span>  log_price <span class="op">=</span> <span class="va">log_p</span>,</span></span>
-<span class="r-in"><span>  t1_seq    <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/seq.html" class="external-link">seq</a></span><span class="op">(</span>from <span class="op">=</span> <span class="fl">1</span>, by <span class="op">=</span> <span class="fl">10</span>, length.out <span class="op">=</span> <span class="fl">101</span><span class="op">)</span>,</span></span>
-<span class="r-in"><span>  hold_out  <span class="op">=</span> <span class="fl">100</span>, fh <span class="op">=</span> <span class="fl">150</span>,</span></span>
+<span class="r-in"><span>  t1_seq    <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/seq.html" class="external-link">seq</a></span><span class="op">(</span>from <span class="op">=</span> <span class="fl">1</span>, by <span class="op">=</span> <span class="fl">25</span>, length.out <span class="op">=</span> <span class="fl">5</span><span class="op">)</span>,</span></span>
+<span class="r-in"><span>  hold_out  <span class="op">=</span> <span class="fl">20</span>, fh <span class="op">=</span> <span class="fl">30</span>,</span></span>
 <span class="r-in"><span>  fit_args  <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>lower <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0.1</span>, <span class="fl">6</span>, <span class="op">-</span><span class="fl">0.03</span>, <span class="fl">0.8</span><span class="op">)</span>,</span></span>
 <span class="r-in"><span>                   upper <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0.9</span>, <span class="fl">13</span>, <span class="op">-</span><span class="fl">1e-14</span>, <span class="fl">1e6</span><span class="op">)</span>,</span></span>
-<span class="r-in"><span>                   m_init <span class="op">=</span> <span class="fl">0.2</span>, o_init <span class="op">=</span> <span class="fl">12</span>, num_searches <span class="op">=</span> <span class="fl">1</span><span class="op">)</span></span></span>
+<span class="r-in"><span>                   m_init <span class="op">=</span> <span class="fl">0.5</span>, o_init <span class="op">=</span> <span class="fl">8</span>, num_searches <span class="op">=</span> <span class="fl">1</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="op">)</span></span></span>
+<span class="r-in"><span></span></span>
+<span class="r-in"><span><span class="co">## The series is LPPLS throughout, so every window is already LPPLS and there</span></span></span>
+<span class="r-in"><span><span class="co">## is no bias trend to remove: lambda comes out close to zero. On a series</span></span></span>
+<span class="r-in"><span><span class="co">## whose bubble starts part-way through, chi^2_np falls as T1 approaches the</span></span></span>
+<span class="r-in"><span><span class="co">## start, and lambda is positive.</span></span></span>
 <span class="r-in"><span><span class="va">lag</span> <span class="op">&lt;-</span> <span class="fu">lppls_lagrange</span><span class="op">(</span><span class="va">roll</span>, p <span class="op">=</span> <span class="fl">0</span><span class="op">)</span></span></span>
-<span class="r-in"><span><span class="va">lag</span><span class="op">$</span><span class="va">t1_star</span></span></span>
-<span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/base/print.html" class="external-link">print</a></span><span class="op">(</span><span class="fu"><a href="chi_sq_np_plot.html">chi_sq_np_plot</a></span><span class="op">(</span><span class="va">lag</span><span class="op">)</span><span class="op">)</span></span></span>
-<span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/base/print.html" class="external-link">print</a></span><span class="op">(</span><span class="fu"><a href="chi_sq_lambda_plot.html">chi_sq_lambda_plot</a></span><span class="op">(</span><span class="va">lag</span><span class="op">)</span><span class="op">)</span></span></span>
-<span class="r-in"><span><span class="op">}</span> <span class="co"># }</span></span></span>
+<span class="r-in"><span><span class="va">lag</span></span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> LPPLS Lagrange regularization</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>   Windows (T1):  5  (from 1 to 101)</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>   T2 (cal. end): 280</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>   p (denominator correction): 0</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>   Trend: chi^2_np = 9.9863e-05 + (2.58632e-08) * T1</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>   lambda* = -beta1 = -2.58632e-08</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>   Optimal T1* = 26</span>
+<span class="r-in"><span><span class="fu"><a href="chi_sq_np_plot.html">chi_sq_np_plot</a></span><span class="op">(</span><span class="va">lag</span><span class="op">)</span></span></span>
+<span class="r-plt img"><img src="lppls_lagrange-1.png" alt="" width="700" height="433"></span>
+<span class="r-in"><span><span class="fu"><a href="chi_sq_lambda_plot.html">chi_sq_lambda_plot</a></span><span class="op">(</span><span class="va">lag</span><span class="op">)</span></span></span>
+<span class="r-plt img"><img src="lppls_lagrange-2.png" alt="" width="700" height="433"></span>
 <span class="r-in"><span></span></span>
 </code></pre></div>
     </div>

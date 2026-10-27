@@ -103,7 +103,8 @@ ignored on Windows).</p></dd>
 
 <dt id="arg-seed">seed<a class="anchor" aria-label="anchor" href="#arg-seed"></a></dt>
 <dd><p>Integer or <code>NULL</code>; a base seed that makes the bootstrap paths
-reproducible.</p></dd>
+reproducible. The caller's random number stream is left as it was. When
+<code>NULL</code>, the paths are drawn from the caller's stream.</p></dd>
 
 </dl></div>
     <div class="section level2">
@@ -134,11 +135,34 @@ misspecified, so the bootstrap is skipped, a warning is issued and <code>p_boot<
 
     <div class="section level2">
     <h2 id="ref-examples">Examples<a class="anchor" aria-label="anchor" href="#ref-examples"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw">if</span> <span class="op">(</span><span class="cn">FALSE</span><span class="op">)</span> <span class="op">{</span> <span class="co"># \dontrun{</span></span></span>
-<span class="r-in"><span><span class="va">roll</span> <span class="op">&lt;-</span> <span class="fu"><a href="lppls_rolling.html">lppls_rolling</a></span><span class="op">(</span><span class="va">log_p</span>, t1_seq <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/seq.html" class="external-link">seq</a></span><span class="op">(</span><span class="fl">1</span>, <span class="fl">1001</span>, <span class="fl">25</span><span class="op">)</span>, hold_out <span class="op">=</span> <span class="fl">100</span>, fh <span class="op">=</span> <span class="fl">150</span>,</span></span>
-<span class="r-in"><span>                      fit_args <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>mode <span class="op">=</span> <span class="st">"F2"</span>, num_searches <span class="op">=</span> <span class="fl">1</span><span class="op">)</span><span class="op">)</span></span></span>
-<span class="r-in"><span><span class="fu">lr_trend_test</span><span class="op">(</span><span class="va">roll</span>, log_price <span class="op">=</span> <span class="va">log_p</span>, B <span class="op">=</span> <span class="fl">199</span>, cores <span class="op">=</span> <span class="fl">4</span>, seed <span class="op">=</span> <span class="fl">1</span><span class="op">)</span></span></span>
-<span class="r-in"><span><span class="op">}</span> <span class="co"># }</span></span></span>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="co"># \donttest{</span></span></span>
+<span class="r-in"><span><span class="kw">if</span> <span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/ns-load.html" class="external-link">requireNamespace</a></span><span class="op">(</span><span class="st">"tsgarch"</span>, quietly <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span> <span class="op">&amp;&amp;</span></span></span>
+<span class="r-in"><span>    <span class="fu"><a href="https://rdrr.io/r/base/ns-load.html" class="external-link">requireNamespace</a></span><span class="op">(</span><span class="st">"xts"</span>, quietly <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span> <span class="op">&amp;&amp;</span></span></span>
+<span class="r-in"><span>    <span class="fu"><a href="https://rdrr.io/r/base/ns-load.html" class="external-link">requireNamespace</a></span><span class="op">(</span><span class="st">"sandwich"</span>, quietly <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span><span class="op">)</span> <span class="op">{</span></span></span>
+<span class="r-in"><span>  <span class="fu"><a href="https://rdrr.io/r/base/Random.html" class="external-link">set.seed</a></span><span class="op">(</span><span class="fl">3630</span><span class="op">)</span></span></span>
+<span class="r-in"><span>  <span class="va">N</span>     <span class="op">&lt;-</span> <span class="fl">300</span></span></span>
+<span class="r-in"><span>  <span class="va">log_p</span> <span class="op">&lt;-</span> <span class="fu"><a href="eval_lppls.html">eval_lppls</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/seq.html" class="external-link">seq_len</a></span><span class="op">(</span><span class="va">N</span><span class="op">)</span>, A <span class="op">=</span> <span class="fl">8</span>, B <span class="op">=</span> <span class="op">-</span><span class="fl">0.025</span>, C1 <span class="op">=</span> <span class="fl">0.0015</span>, C2 <span class="op">=</span> <span class="fl">0.001</span>,</span></span>
+<span class="r-in"><span>                      tc <span class="op">=</span> <span class="va">N</span> <span class="op">+</span> <span class="fl">1</span>, m <span class="op">=</span> <span class="fl">0.6</span>, omega <span class="op">=</span> <span class="fl">8</span><span class="op">)</span> <span class="op">+</span> <span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">N</span><span class="op">)</span> <span class="op">*</span> <span class="fl">0.01</span></span></span>
+<span class="r-in"><span>  <span class="va">roll</span> <span class="op">&lt;-</span> <span class="fu"><a href="lppls_rolling.html">lppls_rolling</a></span><span class="op">(</span></span></span>
+<span class="r-in"><span>    log_price <span class="op">=</span> <span class="va">log_p</span>,</span></span>
+<span class="r-in"><span>    t1_seq    <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/seq.html" class="external-link">seq</a></span><span class="op">(</span>from <span class="op">=</span> <span class="fl">1</span>, by <span class="op">=</span> <span class="fl">20</span>, length.out <span class="op">=</span> <span class="fl">8</span><span class="op">)</span>,</span></span>
+<span class="r-in"><span>    hold_out  <span class="op">=</span> <span class="fl">0</span>, fh <span class="op">=</span> <span class="fl">30</span>,</span></span>
+<span class="r-in"><span>    fit_args  <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>lower <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0.1</span>, <span class="fl">6</span>, <span class="op">-</span><span class="fl">0.03</span>, <span class="fl">0.8</span><span class="op">)</span>,</span></span>
+<span class="r-in"><span>                     upper <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0.9</span>, <span class="fl">13</span>, <span class="op">-</span><span class="fl">1e-14</span>, <span class="fl">1e6</span><span class="op">)</span>,</span></span>
+<span class="r-in"><span>                     m_init <span class="op">=</span> <span class="fl">0.5</span>, o_init <span class="op">=</span> <span class="fl">8</span>, num_searches <span class="op">=</span> <span class="fl">1</span><span class="op">)</span></span></span>
+<span class="r-in"><span>  <span class="op">)</span></span></span>
+<span class="r-in"><span></span></span>
+<span class="r-in"><span>  <span class="co">## A single-regime series has no real trend, so the test should find none.</span></span></span>
+<span class="r-in"><span>  <span class="co">## Every bootstrap replicate repeats the rolling calibration; B = 9 keeps</span></span></span>
+<span class="r-in"><span>  <span class="co">## the example quick, but use 199 or more in practice.</span></span></span>
+<span class="r-in"><span>  <span class="fu">lr_trend_test</span><span class="op">(</span><span class="va">roll</span>, log_price <span class="op">=</span> <span class="va">log_p</span>, B <span class="op">=</span> <span class="fl">9</span>, seed <span class="op">=</span> <span class="fl">1</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="op">}</span></span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> Lagrange chi^2_np bias-trend test</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>   slope beta1 = -1.41e-08   (lambda = 1.41e-08)   over 8 windows</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>   OLS p       = 0.461      HAC (Newey-West) p = 0.453</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>   AR(1)-GARCH(1,1): ar1 = -0.02, alpha + beta = 0.838  [valid]</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>   parametric bootstrap: p = 0.556, z = 0.25  (B = 9)</span>
+<span class="r-in"><span><span class="co"># }</span></span></span>
 <span class="r-in"><span></span></span>
 </code></pre></div>
     </div>

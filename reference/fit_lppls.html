@@ -555,28 +555,32 @@ recalibrate over a rolling window.</p></div>
 
     <div class="section level2">
     <h2 id="ref-examples">Examples<a class="anchor" aria-label="anchor" href="#ref-examples"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw">if</span> <span class="op">(</span><span class="cn">FALSE</span><span class="op">)</span> <span class="op">{</span> <span class="co"># \dontrun{</span></span></span>
-<span class="r-in"><span><span class="co"># Generate synthetic bubble data</span></span></span>
-<span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/base/Random.html" class="external-link">set.seed</a></span><span class="op">(</span><span class="fl">123</span><span class="op">)</span></span></span>
-<span class="r-in"><span><span class="va">t</span> <span class="op">&lt;-</span> <span class="fl">1</span><span class="op">:</span><span class="fl">200</span></span></span>
-<span class="r-in"><span><span class="va">true_params</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>A <span class="op">=</span> <span class="fl">4</span>, B <span class="op">=</span> <span class="op">-</span><span class="fl">0.015</span>, C1 <span class="op">=</span> <span class="fl">0.002</span>, C2 <span class="op">=</span> <span class="fl">0.001</span>,</span></span>
-<span class="r-in"><span>                    tc <span class="op">=</span> <span class="fl">250</span>, m <span class="op">=</span> <span class="fl">0.5</span>, omega <span class="op">=</span> <span class="fl">9</span><span class="op">)</span></span></span>
-<span class="r-in"><span><span class="va">log_p</span> <span class="op">&lt;-</span> <span class="fu"><a href="eval_lppls.html">eval_lppls</a></span><span class="op">(</span><span class="va">t</span>, <span class="va">true_params</span><span class="op">$</span><span class="va">A</span>, <span class="va">true_params</span><span class="op">$</span><span class="va">B</span>, <span class="va">true_params</span><span class="op">$</span><span class="va">C1</span>,</span></span>
-<span class="r-in"><span>                   <span class="va">true_params</span><span class="op">$</span><span class="va">C2</span>, <span class="va">true_params</span><span class="op">$</span><span class="va">tc</span>, <span class="va">true_params</span><span class="op">$</span><span class="va">m</span>,</span></span>
-<span class="r-in"><span>                   <span class="va">true_params</span><span class="op">$</span><span class="va">omega</span><span class="op">)</span> <span class="op">+</span> <span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="fl">200</span>, <span class="fl">0</span>, <span class="fl">0.01</span><span class="op">)</span></span></span>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="co">## A simulated bubble: 200 observations of an LPPLS path whose critical time</span></span></span>
+<span class="r-in"><span><span class="co">## is t = 221, plus a little noise</span></span></span>
+<span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/base/Random.html" class="external-link">set.seed</a></span><span class="op">(</span><span class="fl">4</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="va">t</span>     <span class="op">&lt;-</span> <span class="fl">1</span><span class="op">:</span><span class="fl">200</span></span></span>
+<span class="r-in"><span><span class="va">log_p</span> <span class="op">&lt;-</span> <span class="fu"><a href="eval_lppls.html">eval_lppls</a></span><span class="op">(</span><span class="va">t</span>, A <span class="op">=</span> <span class="fl">8</span>, B <span class="op">=</span> <span class="op">-</span><span class="fl">0.025</span>, C1 <span class="op">=</span> <span class="fl">0.0015</span>, C2 <span class="op">=</span> <span class="fl">0.001</span>,</span></span>
+<span class="r-in"><span>                    tc <span class="op">=</span> <span class="fl">221</span>, m <span class="op">=</span> <span class="fl">0.6</span>, omega <span class="op">=</span> <span class="fl">8</span><span class="op">)</span> <span class="op">+</span> <span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="fl">200</span>, sd <span class="op">=</span> <span class="fl">0.01</span><span class="op">)</span></span></span>
 <span class="r-in"><span></span></span>
-<span class="r-in"><span><span class="co"># Fit model</span></span></span>
-<span class="r-in"><span><span class="va">result</span> <span class="op">&lt;-</span> <span class="fu">fit_lppls</span><span class="op">(</span>log_price <span class="op">=</span> <span class="va">log_p</span>,</span></span>
-<span class="r-in"><span>                 fh <span class="op">=</span> <span class="fl">100</span>, hold_out <span class="op">=</span> <span class="fl">0</span>,</span></span>
-<span class="r-in"><span>                 tc_init <span class="op">=</span> <span class="fl">250</span>, mode <span class="op">=</span> <span class="st">"F2"</span>,</span></span>
-<span class="r-in"><span>                 num_searches <span class="op">=</span> <span class="fl">10</span>, fp <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="co">## Calibrate by modified profile likelihood, scanning tc over t = 201..230</span></span></span>
+<span class="r-in"><span><span class="va">fit</span> <span class="op">&lt;-</span> <span class="fu">fit_lppls</span><span class="op">(</span><span class="va">log_p</span>, fh <span class="op">=</span> <span class="fl">30</span>, mode <span class="op">=</span> <span class="st">"MPL"</span>,</span></span>
+<span class="r-in"><span>                 m_init <span class="op">=</span> <span class="fl">0.5</span>, o_init <span class="op">=</span> <span class="fl">8</span>, num_searches <span class="op">=</span> <span class="fl">2</span>, fp <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span></span>
 <span class="r-in"><span></span></span>
-<span class="r-in"><span><span class="co"># View best fit parameters</span></span></span>
-<span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/base/print.html" class="external-link">print</a></span><span class="op">(</span><span class="va">result</span><span class="op">$</span><span class="va">fit</span><span class="op">[[</span><span class="fl">1</span><span class="op">]</span><span class="op">]</span><span class="op">)</span></span></span>
-<span class="r-in"><span></span></span>
-<span class="r-in"><span><span class="co"># View fit plot</span></span></span>
-<span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/base/print.html" class="external-link">print</a></span><span class="op">(</span><span class="va">result</span><span class="op">$</span><span class="va">fit_plot</span><span class="op">)</span></span></span>
-<span class="r-in"><span><span class="op">}</span> <span class="co"># }</span></span></span>
+<span class="r-in"><span><span class="va">fit</span>                        <span class="co"># the estimate, and the diagnostics that qualify it</span></span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> LPPLS calibration (mode = MPL)</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>   Window:    n = 200   fh = 30   hold_out = 0   num_searches = 2</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>   Estimate:  tc = 222.98   m = 0.5937   omega = 8.2586   D = 1.034</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>              SSE = 0.0178573</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>   Bounds:    estimate interior;  fits at a bound: m 0/30, omega 0/30</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>   Basins:    SSE 0.0178574..0.0223081;</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>              no distinct inferior cluster (largest gap 0.11 of the spread)</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>   Filters:   B out of range 0   D out of range 0</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>   MPL:       defined at 30/30 tc   MPLE = 223</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>              LI(0.05) [217, 230]   LI(0.10) [218, 229]   LI(0.50) [220, 226]</span>
+<span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">fit</span>, <span class="st">"fit"</span><span class="op">)</span>           <span class="co"># attached at fit time by fp = TRUE</span></span></span>
+<span class="r-plt img"><img src="fit_lppls-1.png" alt="" width="700" height="433"></span>
+<span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">fit</span>, <span class="st">"mpl_relative"</span><span class="op">)</span>  <span class="co"># drawn on demand</span></span></span>
+<span class="r-plt img"><img src="fit_lppls-2.png" alt="" width="700" height="433"></span>
 <span class="r-in"><span></span></span>
 </code></pre></div>
     </div>

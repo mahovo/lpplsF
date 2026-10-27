@@ -582,26 +582,30 @@ to recalibrate over a rolling window.
 ## Examples
 
 ``` r
-if (FALSE) { # \dontrun{
-# Generate synthetic bubble data
-set.seed(123)
-t <- 1:200
-true_params <- list(A = 4, B = -0.015, C1 = 0.002, C2 = 0.001,
-                    tc = 250, m = 0.5, omega = 9)
-log_p <- eval_lppls(t, true_params$A, true_params$B, true_params$C1,
-                   true_params$C2, true_params$tc, true_params$m,
-                   true_params$omega) + rnorm(200, 0, 0.01)
+## A simulated bubble: 200 observations of an LPPLS path whose critical time
+## is t = 221, plus a little noise
+set.seed(4)
+t     <- 1:200
+log_p <- eval_lppls(t, A = 8, B = -0.025, C1 = 0.0015, C2 = 0.001,
+                    tc = 221, m = 0.6, omega = 8) + rnorm(200, sd = 0.01)
 
-# Fit model
-result <- fit_lppls(log_price = log_p,
-                 fh = 100, hold_out = 0,
-                 tc_init = 250, mode = "F2",
-                 num_searches = 10, fp = TRUE)
+## Calibrate by modified profile likelihood, scanning tc over t = 201..230
+fit <- fit_lppls(log_p, fh = 30, mode = "MPL",
+                 m_init = 0.5, o_init = 8, num_searches = 2, fp = TRUE)
 
-# View best fit parameters
-print(result$fit[[1]])
+fit                        # the estimate, and the diagnostics that qualify it
+#> LPPLS calibration (mode = MPL)
+#>   Window:    n = 200   fh = 30   hold_out = 0   num_searches = 2
+#>   Estimate:  tc = 222.98   m = 0.5937   omega = 8.2586   D = 1.034
+#>              SSE = 0.0178573
+#>   Bounds:    estimate interior;  fits at a bound: m 0/30, omega 0/30
+#>   Basins:    SSE 0.0178574..0.0223081;
+#>              no distinct inferior cluster (largest gap 0.11 of the spread)
+#>   Filters:   B out of range 0   D out of range 0
+#>   MPL:       defined at 30/30 tc   MPLE = 223
+#>              LI(0.05) [217, 230]   LI(0.10) [218, 229]   LI(0.50) [220, 226]
+plot(fit, "fit")           # attached at fit time by fp = TRUE
 
-# View fit plot
-print(result$fit_plot)
-} # }
+plot(fit, "mpl_relative")  # drawn on demand
+
 ```
