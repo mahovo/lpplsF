@@ -1,6 +1,10 @@
 ## Test environments
 
 * local: macOS Sequoia 15.7.2 (aarch64-apple-darwin20), R 4.5.2
+* GitHub Actions:
+  * macOS (latest), R release (4.6.1)
+  * Windows (latest), R release (4.6.1)
+  * Ubuntu (latest), R-devel, R release (4.6.1) and R oldrel-1 (4.5.3)
 
 ## R CMD check results
 
