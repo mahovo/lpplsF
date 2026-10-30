@@ -72,8 +72,7 @@ Supports multiple optimization modes and provides diagnostic outputs.</p>
 <span>  fp <span class="op">=</span> <span class="cn">FALSE</span>,</span>
 <span>  cp <span class="op">=</span> <span class="cn">FALSE</span>,</span>
 <span>  sp <span class="op">=</span> <span class="cn">FALSE</span>,</span>
-<span>  tp <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0</span>, <span class="fl">0</span>, <span class="fl">0</span><span class="op">)</span>,</span>
-<span>  tp_id <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>  tp <span class="op">=</span> <span class="cn">FALSE</span>,</span>
 <span>  pp <span class="op">=</span> <span class="cn">FALSE</span>,</span>
 <span>  mp <span class="op">=</span> <span class="cn">FALSE</span>,</span>
 <span>  factr <span class="op">=</span> <span class="fl">1e+07</span>,</span>
@@ -112,12 +111,7 @@ Demos &amp; Sornette (2017): \(B &lt; 0\), \(D \geq 0.8\),
 \(0.1 \leq m \leq 0.9\) and \(6 \leq \omega \leq 13\), which they give
 as approximate. The damping bound relaxes the theoretical \(D &gt; 1\), which
 keeps the crash hazard rate non-negative (Graf v. Bothmer &amp; Meister, 2003),
-because a real crash unfolds over weeks rather than in one immediate jump.<br>
-NOTE: For <code>trace_plot</code> mode 2 and 3 (<code>bm</code> and <code>bo</code>), lower for <code>B</code> should
-be set to the desired minimum value of the B-axis in the contour
-plotting.<br>
-Example:<br></p><div class="sourceCode"><pre><code><span><span class="va">lower</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0.1</span>, <span class="fl">6</span>, <span class="op">-</span><span class="fl">0.03</span>, <span class="fl">0.8</span><span class="op">)</span></span></code></pre></div><p>If the optimization algorithm goes below the lower limits at any point
-the lower limit for the B-axis will be extended automatically.</p></dd>
+because a real crash unfolds over weeks rather than in one immediate jump.<br><code>lower[3]</code> is not used: <code>B</code> is only checked against <code>upper[3]</code>.</p></dd>
 
 
 <dt id="arg-upper">upper<a class="anchor" aria-label="anchor" href="#arg-upper"></a></dt>
@@ -126,9 +120,12 @@ the lower limit for the B-axis will be extended automatically.</p></dd>
 
 
 <dt id="arg-tc-init">tc_init<a class="anchor" aria-label="anchor" href="#arg-tc-init"></a></dt>
-<dd><p>Numeric, initial value of critical time <code>tc</code> for optim()
-(default 1000). <code>tc_init</code> should be in \([T_2+1, T_3]\), where
-\(T_3 = T_2 + s\), and \(s\) is the forecast horizon.</p></dd>
+<dd><p>Numeric, initial value of the critical time <code>tc</code> (default
+1000). Used only in mode <code>"F1"</code>, which optimises <code>tc</code> jointly with <code>m</code> and
+<code>omega</code>; it should then lie in \([T_2+1, T_2+f_h]\).
+Modes <code>"F2"</code> and <code>"MPL"</code> run <code>tc</code> over the grid \(T_2+1, \dots, T_2+f_h\)
+and refine it by a Brent search over the same interval, which needs no
+starting value, so there <code>tc_init</code> has no effect.</p></dd>
 
 
 <dt id="arg-m-init">m_init<a class="anchor" aria-label="anchor" href="#arg-m-init"></a></dt>
@@ -199,20 +196,14 @@ value is fixed to the estimate with the lowest objective function value.</p></dd
 
 
 <dt id="arg-tp">tp<a class="anchor" aria-label="anchor" href="#arg-tp"></a></dt>
-<dd><p>Numeric vector of length 3, 0/1 selectors for trace plots.
-Plot 1: <code>m-omega</code>, plot 2: <code>B-m</code>, plot 3:<code>B-omega</code> (default <code>c(0, 0, 0)</code>).<br>
-Example: <code>c(1, 0, 1)</code> selects trace plot 1 and 3. Traces convergence of
-parameters during optimization of F2 objective function. Only works when
-<code>mode = "F2"</code>. The plotted trace path is the one for the value of <code>tc</code> that
-produced the smallest value of <code>SSE2</code>.<br>
-NOTE: Contour plots in trace plot 2 and 3 only apply to the first step in
-the trace. In a trace plot wrt <code>B</code> and <code>m</code>, <code>omega</code> is not fixed (and vice
-versa for <code>m</code> and <code>omega</code>).</p></dd>
-
-
-<dt id="arg-tp-id">tp_id<a class="anchor" aria-label="anchor" href="#arg-tp-id"></a></dt>
-<dd><p>Integer, which trace step to use for contour plot (default 1).
-If the indicated id is too high, 1 will be chosen.</p></dd>
+<dd><p>Logical, whether to generate the trace plot (default <code>FALSE</code>): the
+path the optimizer took through <code>(m, omega)</code> in the search that produced
+the estimate, replayed at the final <code>tc</code> and drawn over the SSE surface it
+minimised, with the linear parameters solved by least squares at each
+point. <code>B</code> and the damping <code>D</code> follow from that solution, so they appear as
+shaded regions: where it would have <code>B &gt;= upper[3]</code> or <code>D &lt; lower[4]</code>, the
+conditions <code><a href="print.lppls_fit.html">print.lppls_fit()</a></code> reports as out of range. Only available in
+modes <code>"F2"</code> and <code>"MPL"</code>.</p></dd>
 
 
 <dt id="arg-pp">pp<a class="anchor" aria-label="anchor" href="#arg-pp"></a></dt>
@@ -421,17 +412,9 @@ contour plot of SSE wrt <code>m</code> and <code>omega</code>.</p></dd>
 <dt>surface_plot</dt>
 <dd><p>(if requested) plotly object for surface plot</p></dd>
 
-<dt>trace_plot_mo</dt>
-<dd><p>(if requested) ggplot2 object containing trace plot
-for <code>m</code> and <code>omega</code></p></dd>
-
-<dt>trace_plot_bm</dt>
-<dd><p>(if requested) ggplot2 object containing trace plot
-for <code>B</code> and <code>m</code></p></dd>
-
-<dt>trace_plot_bo</dt>
-<dd><p>(if requested) ggplot2 object for containing trace
-plot for <code>B</code> and <code>omega</code></p></dd>
+<dt>trace_plot</dt>
+<dd><p>(if requested) ggplot2 object for the trace plot (see
+<code>tp</code>)</p></dd>
 
 <dt>param_plot</dt>
 <dd><p>(if requested) ggplot2 object for parameter plot</p></dd>

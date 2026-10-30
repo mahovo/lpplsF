@@ -47,11 +47,4 @@ residual_qq_plot(rnorm(200))
 
 if (requireNamespace("MASS", quietly = TRUE))
   residual_qq_plot(rt(200, df = 4), distribution = "t")
-#> Warning: NaNs produced
-#> Warning: NaNs produced
-#> Warning: NaNs produced
-#> Warning: NaNs produced
-#> Warning: NaNs produced
-#> Warning: NaNs produced
-#> Warning: NaNs produced
 ```

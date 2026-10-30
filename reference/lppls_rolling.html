@@ -122,8 +122,9 @@ supplied here. If <code>mode</code> is not supplied it defaults to <code>"MPL"</
 <dd><p>Data frame with one row per window: <code>T1</code>, <code>n_cal</code>, the
 absolute point estimates <code>tc</code>, <code>m</code>, <code>omega</code>, <code>A</code>, <code>B</code>, <code>C1</code>, <code>C2</code>, <code>D</code>,
 the calibration-region residual sum of squares <code>sse_cal</code>, the absolute
-likelihood-interval bounds <code>LI5l</code>/<code>LI5u</code>/<code>LI10l</code>/<code>LI10u</code>/<code>LI50l</code>/<code>LI50u</code>
-and the absolute modified-profile-likelihood estimate <code>tc_hat_mpl</code>.</p></dd>
+likelihood-interval bounds, one pair per cutoff (with the default
+cutoffs <code>LI5l</code>/<code>LI5u</code>/<code>LI10l</code>/<code>LI10u</code>/<code>LI50l</code>/<code>LI50u</code>), and the
+absolute modified-profile-likelihood estimate <code>tc_hat_mpl</code>.</p></dd>
 
 <dt>fits</dt>
 <dd><p>List of best-fit parameter lists (<code>fit[[1]]</code>) per window, in
@@ -152,7 +153,10 @@ results (<code>tc</code>, the likelihood intervals and <code>tc_hat_mpl</code>) 
 absolute time by adding \(T_1 - 1\) before being returned.</p>
 <p>The likelihood-interval columns (<code>LI5l</code> ... <code>tc_hat_mpl</code>) are populated only
 when the fit is run in <code>mode = "MPL"</code> (the default); under <code>mode = "F2"</code> they
-are <code>NA</code> but the point estimates and <code>sse_cal</code> (hence Lagrange) are identical.</p>
+are <code>NA</code> but the point estimates and <code>sse_cal</code> (hence Lagrange) are identical.
+There is one pair of interval columns per cutoff in <code>fit_args$mpl_cutoff</code>,
+named for the cutoff as a percentage: <code>LI5l</code> and <code>LI5u</code> for 0.05, <code>LI1l</code> and
+<code>LI1u</code> for 0.01.</p>
     </div>
     <div class="section level2">
     <h2 id="profiling-on-macos">Profiling on macOS<a class="anchor" aria-label="anchor" href="#profiling-on-macos"></a></h2>

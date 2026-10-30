@@ -76,9 +76,9 @@ An object of class `"lppls_rolling"`: a list with
   Data frame with one row per window: `T1`, `n_cal`, the absolute point
   estimates `tc`, `m`, `omega`, `A`, `B`, `C1`, `C2`, `D`, the
   calibration-region residual sum of squares `sse_cal`, the absolute
-  likelihood-interval bounds
-  `LI5l`/`LI5u`/`LI10l`/`LI10u`/`LI50l`/`LI50u` and the absolute
-  modified-profile-likelihood estimate `tc_hat_mpl`.
+  likelihood-interval bounds, one pair per cutoff (with the default
+  cutoffs `LI5l`/`LI5u`/`LI10l`/`LI10u`/`LI50l`/`LI50u`), and the
+  absolute modified-profile-likelihood estimate `tc_hat_mpl`.
 
 - fits:
 
@@ -118,7 +118,9 @@ by adding \\T_1 - 1\\ before being returned.
 The likelihood-interval columns (`LI5l` ... `tc_hat_mpl`) are populated
 only when the fit is run in `mode = "MPL"` (the default); under
 `mode = "F2"` they are `NA` but the point estimates and `sse_cal` (hence
-Lagrange) are identical.
+Lagrange) are identical. There is one pair of interval columns per
+cutoff in `fit_args$mpl_cutoff`, named for the cutoff as a percentage:
+`LI5l` and `LI5u` for 0.05, `LI1l` and `LI1u` for 0.01.
 
 ## Profiling on macOS
 

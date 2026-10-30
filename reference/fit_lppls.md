@@ -23,8 +23,7 @@ fit_lppls(
   fp = FALSE,
   cp = FALSE,
   sp = FALSE,
-  tp = c(0, 0, 0),
-  tp_id = 1,
+  tp = FALSE,
   pp = FALSE,
   mp = FALSE,
   factr = 1e+07,
@@ -64,15 +63,7 @@ fit_lppls(
   which keeps the crash hazard rate non-negative (Graf v. Bothmer &
   Meister, 2003), because a real crash unfolds over weeks rather than in
   one immediate jump.  
-  NOTE: For `trace_plot` mode 2 and 3 (`bm` and `bo`), lower for `B`
-  should be set to the desired minimum value of the B-axis in the
-  contour plotting.  
-  Example:  
-
-      lower = c(0.1, 6, -0.03, 0.8)
-
-  If the optimization algorithm goes below the lower limits at any point
-  the lower limit for the B-axis will be extended automatically.
+  `lower[3]` is not used: `B` is only checked against `upper[3]`.
 
 - upper:
 
@@ -81,9 +72,12 @@ fit_lppls(
 
 - tc_init:
 
-  Numeric, initial value of critical time `tc` for optim() (default
-  1000). `tc_init` should be in \\\[T_2+1, T_3\]\\, where \\T_3 = T_2 +
-  s\\, and \\s\\ is the forecast horizon.
+  Numeric, initial value of the critical time `tc` (default 1000). Used
+  only in mode `"F1"`, which optimises `tc` jointly with `m` and
+  `omega`; it should then lie in \\\[T_2+1, T_2+f_h\]\\. Modes `"F2"`
+  and `"MPL"` run `tc` over the grid \\T_2+1, \dots, T_2+f_h\\ and
+  refine it by a Brent search over the same interval, which needs no
+  starting value, so there `tc_init` has no effect.
 
 - m_init:
 
@@ -158,20 +152,15 @@ fit_lppls(
 
 - tp:
 
-  Numeric vector of length 3, 0/1 selectors for trace plots. Plot 1:
-  `m-omega`, plot 2: `B-m`, plot 3:`B-omega` (default `c(0, 0, 0)`).  
-  Example: `c(1, 0, 1)` selects trace plot 1 and 3. Traces convergence
-  of parameters during optimization of F2 objective function. Only works
-  when `mode = "F2"`. The plotted trace path is the one for the value of
-  `tc` that produced the smallest value of `SSE2`.  
-  NOTE: Contour plots in trace plot 2 and 3 only apply to the first step
-  in the trace. In a trace plot wrt `B` and `m`, `omega` is not fixed
-  (and vice versa for `m` and `omega`).
-
-- tp_id:
-
-  Integer, which trace step to use for contour plot (default 1). If the
-  indicated id is too high, 1 will be chosen.
+  Logical, whether to generate the trace plot (default `FALSE`): the
+  path the optimizer took through `(m, omega)` in the search that
+  produced the estimate, replayed at the final `tc` and drawn over the
+  SSE surface it minimised, with the linear parameters solved by least
+  squares at each point. `B` and the damping `D` follow from that
+  solution, so they appear as shaded regions: where it would have
+  `B >= upper[3]` or `D < lower[4]`, the conditions
+  [`print.lppls_fit()`](https://mahovo.github.io/lpplsF/reference/print.lppls_fit.md)
+  reports as out of range. Only available in modes `"F2"` and `"MPL"`.
 
 - pp:
 
@@ -413,19 +402,9 @@ A list containing:
 
   (if requested) plotly object for surface plot
 
-- trace_plot_mo:
+- trace_plot:
 
-  (if requested) ggplot2 object containing trace plot for `m` and
-  `omega`
-
-- trace_plot_bm:
-
-  (if requested) ggplot2 object containing trace plot for `B` and `m`
-
-- trace_plot_bo:
-
-  (if requested) ggplot2 object for containing trace plot for `B` and
-  `omega`
+  (if requested) ggplot2 object for the trace plot (see `tp`)
 
 - param_plot:
 

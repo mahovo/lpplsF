@@ -1,8 +1,8 @@
 # Plot tc Estimates and Likelihood Intervals Across Rolling T1
 
 Plots the point estimate of the critical time \\t_c\\ (profile
-likelihood, black; modified profile likelihood, cyan) with the 5\\
-likelihood-interval bands, as a function of the rolling calibration
+likelihood, black; modified profile likelihood, cyan) with a
+likelihood-interval band for each cutoff (by default 5\\ calibration
 start time \\T_1\\. This is a general window-diagnostic – useful with or
 without Lagrange regularization – and reproduces the `*_output_T1`
 figure from the thesis. Requires the rolling calibration to have been

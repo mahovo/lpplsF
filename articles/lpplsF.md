@@ -23,7 +23,7 @@ faster than exponential, and if the damping \\D = m\|B\| / (\omega
 \sqrt{C_1^2 + C_2^2})\\ is at least \\0.8\\ (relaxed from the
 theoretical bound of 1).
 [`fit_lppls()`](https://mahovo.github.io/lpplsF/reference/fit_lppls.md)
-enforces both conditions, and searches within \\0.1 \le m \le 0.9\\ and
+reports both conditions, and searches within \\0.1 \le m \le 0.9\\ and
 \\6 \le \omega \le 13\\ unless told otherwise (Filimonov, Demos and
 Sornette 2017).
 
