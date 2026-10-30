@@ -228,6 +228,19 @@ test_that("mpl_relative draws the same markers as the absolute MPL plot", {
 })
 
 
+test_that("the MPL plots name each interval for its cutoff, not its position", {
+  f <- mpl_fit(mpl_plot = TRUE)          # cutoffs 0.05 and 0.5
+  ## One line per cutoff, LI_05 and LI_50; by position the second would have
+  ## been called LI_10.
+  h <- plot(f, "mpl_relative")$layers[[2]]$data$series
+  expect_identical(as.character(h), c("LI_05", "LI_50"))
+  for (p in list(plot(f, "mpl"), plot(f, "mpl_relative"))) {
+    v <- as.character(p$layers[[length(p$layers)]]$data$series)
+    expect_true(all(setdiff(v, c("PLE", "MPLE")) %in% c("LI_05", "LI_50")))
+  }
+})
+
+
 test_that("mpl_relative needs a modified profile likelihood", {
   f <- mpl_fit()
   f$mpl_output <- NULL

@@ -273,7 +273,7 @@ est_row <- function(fit) {
 }
 
 ## The calibration shared by M1 and M2. fp/pp/tp ask fit_lppls() to also attach
-## the fit plot, the per-tc parameter plot and the three BFGS trace plots to the
+## the fit plot, the per-tc parameter plot and the BFGS trace plot to the
 ## returned object, so they are available later without refitting.
 fit_call <- function(log_price) {
   fit_lppls(
@@ -281,7 +281,7 @@ fit_call <- function(log_price) {
     lower = c(0.1, 6, -0.03, 0.8), upper = c(0.9, 13, -1e-14, 1e6),
     tc_init = 1950, m_init = 0.2, o_init = 12, num_searches = 1,
     mode = "MPL", mpl_cutoff = c(0.05, 0.1, 0.5), beta_method = "crossprod",
-    fp = TRUE, pp = TRUE, tp = c(1, 1, 1), tp_id = 1
+    fp = TRUE, pp = TRUE, tp = TRUE
   )
 }
 ```
@@ -317,6 +317,11 @@ the estimates are those of thesis Table 3.*
 ### M1 — Gaussian noise — thesis Figure 13(a)
 
 ```{r figfit-gauss, fig.width=6, fig.height=4}
+#| fig.alt: >
+#|   Simulated log-price series with Gaussian noise over 2,000 time steps in
+#|   blue, closely tracked by the fitted LPPLS curve in red. Dashed lines mark T2
+#|   = 1800 in green and the estimated critical time in red, near the end of the
+#|   series.
 fit_gauss$fit_plot
 ```
 
@@ -328,6 +333,10 @@ knitr::kable(est_row(fit_gauss), digits = 5,
 ### M2 — AR(1)-GARCH(1,1) noise — thesis Figure 13(b)
 
 ```{r figfit-garch, fig.width=6, fig.height=4}
+#| fig.alt: >
+#|   The simulated series with AR(1)-GARCH(1,1) noise in blue and its fitted
+#|   LPPLS curve in red, with dashed lines at T2 = 1800 in green and at the
+#|   estimated critical time in red, a little earlier than in the Gaussian case.
 fit_garch$fit_plot
 ```
 
@@ -366,13 +375,13 @@ Line by line:
   scale-free and near zero for a smooth profile.
 * **Filters.** How many candidate fits were rejected for $B \ge 0$ or for
   damping, $D$, below its floor. These are the two constraints `fit_lppls()`
-  enforces internally, otherwise visible only as warnings while the fit runs.
+  reports internally, otherwise visible only as warnings while the fit runs.
 * **MPL.** How much of the $t_c$ grid the modified profile likelihood is defined
-  on. `compute_mpl()` returns `NA` wherever $\det(X'X - H) \le 0$, which at a
-  constrained optimum carries no guarantee of sign.
+  on. It is `NA` wherever $\det(X'X - H) \le 0$, which at a constrained optimum
+  carries no guarantee of sign.
 
 A `Diagnostics:` block of `!` lines appears only when something is wrong, so a
-clean fit prints none — as here. [The S&P 500 example](#what-print-says-about-this-one) shows one that prints three.
+clean fit prints none — as here. [The S&P 500 example](#what-print-says-about-this-one) shows one that prints six.
 
 ```{r figfit-print-garch}
 fit_garch
@@ -389,63 +398,65 @@ calibration runs; these reuse the fits above.
 ### M1 — Gaussian noise — thesis Figure 14(a)
 
 ```{r param-gauss, fig.width=5, fig.height=8}
+#| fig.alt: >
+#|   Eight stacked panels, one each for A, B, C1, C2, D, m, omega and the
+#|   objective value, plotted against the candidate critical time from 1800 to
+#|   2100, with a red vertical line at the estimate. A, B, D, m and omega change
+#|   smoothly, C1 and C2 oscillate, and the objective is lowest at the red line.
 fit_gauss$param_plot
 ```
 
 ### M2 — AR(1)-GARCH(1,1) noise — thesis Figure 14(b)
 
 ```{r param-garch, fig.width=5, fig.height=8}
+#| fig.alt: >
+#|   The same eight panels for the AR(1)-GARCH(1,1) series: each estimate against
+#|   the candidate critical time, with a red vertical line at the estimate. C1
+#|   and C2 again oscillate, more distorted than under Gaussian noise.
 fit_garch$param_plot
 ```
 
 # Reading the optimizer: BFGS traces
 
-*Thesis Figures 15, 16 and 17.* With `tp = c(1, 1, 1)`,
-`fit_lppls()` attaches three trace plots: Each shows the SSE landscape for a pair
-of parameters at the estimated $t_c$, overlaid with the BFGS path — red dot at
-the start $(m_{\text{init}}, \omega_{\text{init}}) = (0.2, 12)$, green diamond at
-the estimate.
+*Thesis Figure 15.* With `tp = TRUE`, `fit_lppls()` attaches a trace plot. It
+shows the SSE landscape over $(m, \omega)$ at the estimated $t_c$, overlaid with
+the BFGS path — red dot at the start
+$(m_{\text{init}}, \omega_{\text{init}}) = (0.2, 12)$, green diamond at the
+estimate.
+
+$B$ and the damping $D$ are not search coordinates. At every point of the
+landscape they follow from the least-squares solution for the linear parameters,
+so the plot shows them as regions instead: shaded where that solution would be
+out of range, black for $B \ge 0$ and white for $D$ below its floor of 0.8, each
+edged with a dashed line. The conditions are checked only where a search ends,
+so a path may cross a shaded region on its way.
 
 ## $(m, \omega)$ topology — thesis Figure 15
 
 The governing topology for calibration: a single interior minimum BFGS finds
-easily. The GARCH minimum sits slightly further from the true $(0.6, 8)$.
+easily. The GARCH minimum sits slightly further from the true $(0.6, 8)$. In
+both, the white lobe at small $m$ is where the damping would fall below 0.8, and
+the Gaussian path touches its edge on the way to the estimate. $B$ is negative
+across the whole box, so nothing is shaded black.
 
 ```{r trace-mo-gauss, fig.width=6, fig.height=4}
-fit_gauss$trace_plot_mo   # Gauss
+#| fig.alt: >
+#|   Heat map of the SSE over m from 0.1 to 0.9 and omega from 6 to 13, with
+#|   white contour lines around a single interior basin. An orange optimiser path
+#|   runs from the red start point at m = 0.2, omega = 12 to a green diamond at
+#|   the estimate near m = 0.6, omega = 8. A white shaded lobe at small m,
+#|   between omega 7.5 and 10, marks where the damping would fall below 0.8; the
+#|   path touches its edge.
+fit_gauss$trace_plot   # Gauss
 ```
 
 ```{r trace-mo-garch, fig.width=6, fig.height=4}
-fit_garch$trace_plot_mo   # GARCH
-```
-
-## $(B, m)$ topology — thesis Figure 16
-
-Very steep for large $m$ and large negative $B$ (note the SSE scale $\sim 10^8$),
-flat elsewhere.
-
-```{r trace-bm-gauss, fig.width=6, fig.height=4}
-fit_gauss$trace_plot_bm   # Gauss
-```
-
-```{r trace-bm-garch, fig.width=6, fig.height=4}
-fit_garch$trace_plot_bm   # GARCH
-```
-
-## $(B, \omega)$ topology — thesis Figure 17
-
-SSE varies only in small waves along $\omega$.
-
-All three trace plots share one optimization path, computed once, so the
-$(B, \omega)$ view starts from the same `init_B` as $(B, m)$ and ends at the
-estimate.
-
-```{r trace-bo-gauss, fig.width=6, fig.height=4}
-fit_gauss$trace_plot_bo   # Gauss
-```
-
-```{r trace-bo-garch, fig.width=6, fig.height=4}
-fit_garch$trace_plot_bo   # GARCH
+#| fig.alt: >
+#|   The same SSE heat map over m and omega for the AR(1)-GARCH(1,1) series: a
+#|   single basin, with the optimiser path from the red start point to a green
+#|   diamond at the estimate, slightly further from the true m = 0.6, omega = 8.
+#|   A similar white lobe at small m marks where the damping would fall below 0.8.
+fit_garch$trace_plot   # GARCH
 ```
 
 # Robustness to noise
@@ -512,12 +523,21 @@ noise-sensitive.
 ### Gaussian noise, M1
 
 ```{r noise-sd-gauss, fig.width=5, fig.height=8}
+#| fig.alt: >
+#|   Six stacked panels showing the estimates of m, omega, A, B, C1 and C2
+#|   against the noise standard deviation, from 0.005 to 0.1, for M1 under
+#|   Gaussian noise. Each drifts steadily as the noise grows; C1 roughly halves
+#|   and C2 changes sign, while m barely moves.
 noise_param_plot(noise_m1_gauss)
 ```
 
 ### AR(1)-GARCH(1,1) noise, M1
 
 ```{r noise-sd-garch, fig.width=5, fig.height=8}
+#| fig.alt: >
+#|   The same six panels for M1 under AR(1)-GARCH(1,1) noise: each estimate
+#|   against the noise standard deviation, with the log-periodic parameters
+#|   omega, C1 and C2 again the most sensitive.
 noise_param_plot(noise_m1_garch)
 ```
 
@@ -530,20 +550,39 @@ true value, here $t_c = 2001$.
 ### Gaussian noise: M1, then M2 at opposite phase — thesis Figure 19
 
 ```{r noise-li-m1-gauss, fig.width=6, fig.height=4}
+#| fig.alt: >
+#|   The estimated critical time against the noise standard deviation for M1
+#|   under Gaussian noise. The PLE and MPLE lines coincide and fall from about
+#|   2000 to about 1978 as the noise grows, inside nested likelihood-interval
+#|   bands that widen with it. A dashed line marks the true value, 2001, which
+#|   stays inside the widest band.
 noise_tc_plot(noise_m1_gauss, true_tc = 2001)
 ```
 
 ```{r noise-li-m2-gauss, echo=FALSE, fig.width=6, fig.height=4}
+#| fig.alt: >
+#|   The same plot for M2, at opposite phase. Under Gaussian noise the PLE and
+#|   MPLE rise from about 2002 to about 2018 as the noise grows, inside
+#|   likelihood-interval bands that widen with it, while the true value, 2001,
+#|   stays just below the lower edge of the innermost band.
 noise_tc_plot(noise_m2_gauss, true_tc = 2001)
 ```
 
 ### AR(1)-GARCH(1,1) noise: M1, then M2 at opposite phase — thesis Figure 20
 
 ```{r noise-li-m1-garch, echo=FALSE, fig.width=6, fig.height=4}
+#| fig.alt: >
+#|   The estimated critical time and its likelihood-interval bands against the
+#|   noise standard deviation for M1 under AR(1)-GARCH(1,1) noise, with a dashed
+#|   line at the true value, 2001.
 noise_tc_plot(noise_m1_garch, true_tc = 2001)
 ```
 
 ```{r noise-li-m2-garch, echo=FALSE, fig.width=6, fig.height=4}
+#| fig.alt: >
+#|   The estimated critical time and its likelihood-interval bands against the
+#|   noise standard deviation for M2 under AR(1)-GARCH(1,1) noise, with a dashed
+#|   line at the true value, 2001.
 noise_tc_plot(noise_m2_garch, true_tc = 2001)
 ```
 
@@ -650,6 +689,11 @@ window-local time ($t = 1$ at $T_1$), so $\hat t_c$ is shifted by the window off
 to draw it on the global clock.
 
 ```{r regime-gauss-fit, fig.width=6, fig.height=4}
+#| fig.alt: >
+#|   The dual-regime series in blue, flat with noise up to t = 600 and then
+#|   rising as an LPPLS bubble to t = 2000. The fitted LPPLS curve in red starts
+#|   at the selected T1, marked by an orange dashed line, and ends at the
+#|   estimated critical time, marked in red; a green dashed line marks T2 = 1900.
 f_glob    <- f_rg
 f_glob$tc <- f_rg$tc + (T1_rg - 1)   # window-local -> global clock
 
@@ -667,10 +711,21 @@ estimates wander; as $T_1$ approaches and passes 600 the window becomes
 predominantly, then purely, LPPL and $\hat t_c$ settles near the true 2001.
 
 ```{r regime-gauss-tc, fig.width=6, fig.height=4}
+#| fig.alt: >
+#|   The estimated critical time against the window start T1, from 1 to 1001,
+#|   with nested likelihood-interval bands. It jumps between about 1930 and 2050
+#|   while the windows still hold much of the flat regime, then climbs and
+#|   settles near 1990 once T1 passes about 600, where the widest bands contain
+#|   the true value, 2001.
 rolling_tc_plot(roll_rg)
 ```
 
 ```{r regime-gauss-params, fig.width=5, fig.height=8}
+#| fig.alt: >
+#|   Six stacked panels showing A, B, C1, C2, m and omega against the window
+#|   start T1. All six jump erratically for T1 below about 270, then settle: A
+#|   near 8, B just below 0, C1 and C2 close to 0, m rising to about 0.6, and
+#|   omega rising to about 8 by T1 = 600.
 rolling_param_plot(roll_rg)
 ```
 
@@ -680,10 +735,19 @@ $\chi^2_{np}(T_1)$ with the OLS bias trend (red), then the regularized objective
 $\chi^2_{\lambda^*}(T_1)$ with the optimal $T_1^*$ (green):
 
 ```{r regime-gauss-chi-np, fig.width=6, fig.height=4}
+#| fig.alt: >
+#|   Scatter of the normalised residual chi-squared against T1 with a red fitted
+#|   linear trend sloping downward. The points fall from about 0.006 at T1 = 0 to
+#|   about 0.0024 by T1 = 570, scattered in two tiers below T1 = 270, and stay
+#|   flat after that.
 chi_sq_np_plot(lag_rg)
 ```
 
 ```{r regime-gauss-chi-lambda, fig.width=6, fig.height=4}
+#| fig.alt: >
+#|   Scatter of the regularised objective against T1, V-shaped with its minimum
+#|   near T1 = 500, where a green vertical line marks the optimal T1*. Below T1 =
+#|   270 the points scatter in two tiers.
 chi_sq_lambda_plot(lag_rg)
 ```
 
@@ -707,6 +771,10 @@ stopifnot(isTRUE(all.equal(sum(res_rg^2), roll_rg$table$sse_cal[k_rg])))
 The residual QQ plot for the window at $T_1^*$. The residuals are near-normal.
 
 ```{r regime-gauss-res, fig.width=6, fig.height=4}
+#| fig.alt: >
+#|   Normal QQ plot of the residuals of the window at T1*, with a red reference
+#|   line and green lines at the 10% and 90% quantiles. The points lie on the
+#|   line except for slight departures in the extreme tails.
 residual_qq_plot(res_rg)
 ```
 
@@ -743,7 +811,7 @@ spx_fit <- fit_lppls(
   mode = "MPL", mpl_cutoff = c(0.05, 0.1, 0.5),
   dates = df_spx$Date,          # calendar labels for the 1..n index
   style = "empirical",          # grey data; the forecast past T2 in red
-  fp = TRUE, mpl_plot = TRUE, tp = c(1, 0, 0), pp = TRUE)
+  fp = TRUE, mpl_plot = TRUE, tp = TRUE, pp = TRUE)
 ```
 
 ```{r spx-est}
@@ -764,7 +832,7 @@ figures below:
 spx_fit
 ```
 
-Three flags, and every caveat in the rest of this section follows from them. The
+Six flags, and every caveat in the rest of this section follows from them. The
 estimate is a **boundary solution**, and not marginally — $m$ is at its upper
 bound in the point estimate *and* in every conditional fit, with
 $\partial\,\mathrm{SSE}/\partial m < 0$ there, so the constraint is genuinely
@@ -774,6 +842,13 @@ which is why the MPL curve below is two-tiered rather than smooth, and why
 `num_searches = 1` is the wrong setting for this series. And the MPL is
 **undefined on part of the grid**, so the curve has gaps the likelihood intervals
 cannot see across.
+
+The last three are about the likelihood intervals themselves. LI(0.05) and
+LI(0.10) each **bridge grid points** that are not above their cutoff, and every
+$t_c$ inside an interval is a **good-basin fit**, so the intervals trace where the
+search succeeded rather than the curvature of the likelihood.
+[The modified profile likelihood](#modified-profile-likelihood-thesis-figure-28)
+below takes this up.
 
 None of this is visible in the point estimate, which looks entirely ordinary.
 
@@ -803,6 +878,12 @@ The default `style = "simulated"` draws a generated series in colour with a
 single fitted line, which is what the earlier sections use.
 
 ```{r spx-fitplot, fig.width=8, fig.height=4}
+#| fig.alt: >
+#|   The S&P 500 log price from 2009 to 2020 in grey, with the fitted LPPLS curve
+#|   in blue up to T2 in January 2019 and its forecast continuation in red up to
+#|   the estimated critical time in March 2020. Dashed vertical lines mark T2 in
+#|   blue and the critical time in red; the index crashes around the critical
+#|   time and then recovers.
 plot(spx_fit, "fit")
 ```
 
@@ -818,7 +899,7 @@ fit_plot(spx_fit$fit[[1]], seq_len(nrow(df_spx)), df_spx$logpris,
 
 The MPLE coincides with the PLE, at 2020-03-03. The `MPL:` line of the printout
 above gives that date next to the index, and each likelihood interval in both
-forms. `compute_mpl()` returns `NA` wherever $\det(X'X - H) \le 0$. At a
+forms. The modified profile likelihood is `NA` wherever $\det(X'X - H) \le 0$. At a
 constrained optimum that determinant carries no guarantee of sign, which is why
 the same line counted gaps in the grid.
 
@@ -826,7 +907,7 @@ the same line counted gaps in the grid.
 > not inference — the `Bounds:` and `Basins:` lines above already say why. Two
 > consequences the printed summary does not spell out. First, the basin split is
 > what makes the curve **two-tiered** rather than smooth: the two tiers are
-> $\approx 39$ log-likelihood units apart, so the plot below is not one curve but
+> $\approx 500$ log-likelihood units apart, so the plot below is not one curve but
 > two.
 >
 > Second, and the reason to distrust the bands specifically: the likelihood
@@ -839,6 +920,13 @@ the same line counted gaps in the grid.
 > crossing. **Read the MPLE, not the bands.**
 
 ```{r spx-mplplot, fig.width=5.5, fig.height=4}
+#| fig.alt: >
+#|   The log modified profile likelihood of the S&P 500 fit against candidate
+#|   critical times from about 2460 to 2930, in two tiers roughly 500 units
+#|   apart, with gaps: an upper tier peaking in a short plateau near 7383 around
+#|   the estimate, and a long lower tier between about 6770 and 6890. Vertical
+#|   lines mark the PLE, the MPLE and the bounds of the 5%, 10% and 50%
+#|   likelihood intervals.
 spx_fit$mpl_plot
 ```
 
@@ -853,7 +941,7 @@ and scales it by the sample size, which gives $\approx 7417$. The determinant
 ratio contributes only $\approx -34$, so the curve peaks near $7383$. The formula
 also drops additive constants that do not depend on $t_c$. What the likelihood intervals actually test is the *difference*
 $R = \log\mathrm{MPL} - \max\log\mathrm{MPL}$ against $\log(\text{cutoff})$, and
-`compute_mpl()` already returns it as `mpl_output$R`.
+the fit already stores it as `mpl_output$R`.
 
 Plotting $R$ and restricting the view to the band the cutoffs live in provides a
 better view of the optimum. `plot(fit, "mpl_relative")` draws that view from the
@@ -862,6 +950,11 @@ lines are the cutoffs themselves, so each interval can be read off where the
 curve crosses one.
 
 ```{r spx-mplplot-rel, fig.width=5.5, fig.height=4}
+#| fig.alt: >
+#|   The same curve on a relative scale, log MPL minus its maximum, with
+#|   horizontal lines at the cutoffs log 0.5, log 0.1 and log 0.05. The curve
+#|   exists only between about 2696 and 2757: it peaks at 0 at the estimate and
+#|   falls to about -1.15, so it crosses only the log 0.5 line.
 plot(spx_fit, "mpl_relative")
 ```
 
@@ -882,6 +975,11 @@ at the gap `print()` reported. It needs nothing that was not already computed, s
 it works even on a fit that requested no plots.
 
 ```{r spx-basin, fig.width=6, fig.height=3.6}
+#| fig.alt: >
+#|   SSE of each conditional fit against its candidate critical time, coloured by
+#|   basin: short runs of good-basin fits in blue with SSE between about 5.3 and
+#|   6, and inferior-basin fits in red with SSE between about 8 and 9 covering
+#|   most of the grid.
 plot(spx_fit, "basin")
 ```
 
@@ -890,6 +988,10 @@ rising smoothly away from the optimal $t_c$, which is what a profile should look
 like:
 
 ```{r gauss-basin, fig.width=6, fig.height=3.6}
+#| fig.alt: >
+#|   The same view for the Gaussian-noise calibration: a single smooth curve of
+#|   conditional fits with no distinct inferior cluster, falling from about 4.9
+#|   at tc = 1800 to a minimum near 2000 and rising again toward 2100.
 plot(fit_gauss, "basin")
 ```
 
@@ -900,6 +1002,13 @@ The view above shows *that* the fits split, but not what they split on.
 than only the objective, which is where the mechanism becomes visible.
 
 ```{r spx-param-basin, fig.width=6, fig.height=9.5}
+#| fig.alt: >
+#|   Eight stacked panels showing A, B, C1, C2, D, m, omega and the objective
+#|   value of every conditional fit against its candidate critical time, coloured
+#|   by basin, with a red vertical line at the estimate. The basins separate most
+#|   clearly in omega, near 6 for the good fits and between 10 and 13 for the
+#|   inferior ones, while m is 0.9 in both; the inferior fits' C1 and C2
+#|   oscillate rapidly and the good ones trace smooth arcs.
 plot(spx_fit, "param_basin")
 ```
 
@@ -968,7 +1077,7 @@ s$basin_gap
 s$mpl$li_check[[1]]
 ```
 
-That last list is the interval integrity check. `compute_mpl()` forms an interval
+That last list is the interval integrity check. `fit_lppls()` forms each interval
 as `range()` of the $t_c$ whose $R$ exceeds $\log(\text{cutoff})$ — and `range()`
 does not care whether that set has holes. When it does, the reported interval
 contains grid points that are not themselves in it:
@@ -988,10 +1097,22 @@ The BFGS path slides to the $(m, \omega)$ boundary corner; the per-$t_c$
 parameter panel shows $m$ pinned at 0.9 with jumps where it hits the boundary.
 
 ```{r spx-trace, fig.width=6, fig.height=4}
-spx_fit$trace_plot_mo
+#| fig.alt: >
+#|   Heat map of the SSE over m and omega for the S&P 500 fit, falling steadily
+#|   toward large m and small omega. The orange optimiser path runs straight from
+#|   the red start point at m = 0.2, omega = 12 to a green diamond in the corner
+#|   at m = 0.9, omega near 6, on the edge of the search box. A small white lobe
+#|   in the bottom-left corner, at small m and omega, marks where the damping
+#|   would fall below 0.8.
+spx_fit$trace_plot
 ```
 
 ```{r spx-param, fig.width=5, fig.height=8}
+#| fig.alt: >
+#|   Eight stacked panels showing each estimate of the S&P 500 calibration
+#|   against the candidate critical time, with a red vertical line at the
+#|   estimate. m sits at its upper bound of 0.9 for every candidate, and the
+#|   other parameters jump between two branches, one for each optimisation basin.
 spx_fit$param_plot
 ```
 
@@ -1006,21 +1127,35 @@ res_spx   <- df_spx$logpris[!is.na(lppls_all)] - lppls_all[!is.na(lppls_all)]
 ```
 
 ```{r spx-qq-norm, fig.width=8, fig.height=4}
+#| fig.alt: >
+#|   Normal QQ plot of the S&P 500 calibration residuals with a red reference
+#|   line and green lines at the 10% and 90% quantiles. The points follow the
+#|   line in the middle but bend away from it at both ends, below it in the lower
+#|   tail and above it in the upper: heavier tails than the normal.
 residual_qq_plot(res_spx)
 ```
 
 ```{r spx-qq-t, fig.width=8, fig.height=4}
+#| fig.alt: >
+#|   The same residuals against a fitted Student-t reference. The points follow
+#|   the line through the middle but flatten at both ends, above it in the lower
+#|   tail and below it in the upper: lighter tails than the fitted t.
 residual_qq_plot(res_spx, "t")
 ```
 
 ## Lagrange regularization on the S&P 500 — thesis Figure 31
 
 Rolling $T_1 = 1 \to 501$ step 25 (21 windows), $T_2 = 2428$ fixed; shipped
-precomputed as `lagrange_rolling_spx.rds` (21-window MPL fit).
+precomputed as `lagrange_rolling_spx.rds` (21-window MPL fit). It is the
+`spx_fit` call above rolled over $T_1$, so window 1 is `spx_fit` itself:
 
-The refit spec is the `spx-fit` call above with `t1_seq = seq(1, 501, 25)`,
-`T2 = 2428`; `lppls_rolling()` sets each window's `tc_init` to
-`n_cal + floor(fh / 2)`, so window 1 reproduces `spx_fit` exactly.
+```{r spxroll-spec, eval=FALSE}
+roll_spx <- lppls_rolling(
+  df_spx$logpris, t1_seq = seq(1, 501, 25), hold_out = 500, fh = 500,
+  fit_args = list(lower = c(0.1, 6, -0.5, 0.8), upper = c(0.9, 13, -1e-14, 1e6),
+                  m_init = 0.2, o_init = 12, num_searches = 1, mode = "MPL",
+                  mpl_cutoff = c(0.05, 0.1, 0.5)))
+```
 
 ```{r spxroll-setup}
 roll_spx <- readRDS(dpath("lagrange_rolling_spx.rds"))
@@ -1033,14 +1168,28 @@ Optimal $T_1^* =$ **`r lag_spx$t1_star`**
 $\lambda > 0$, so the Demos bias trend is genuinely present.
 
 ```{r spxroll-chi-np, fig.width=6, fig.height=4}
+#| fig.alt: >
+#|   Scatter of the normalised residual chi-squared against T1 for the 21 S&P 500
+#|   rolling windows, T1 from 1 to 501. It falls from about 0.0022 to about
+#|   0.0011, with a plateau between T1 = 100 and 275, and a red fitted linear
+#|   trend slopes downward through it.
 chi_sq_np_plot(lag_spx)
 ```
 
 ```{r spxroll-chi-lambda, fig.width=6, fig.height=4}
+#| fig.alt: >
+#|   Scatter of the regularised objective against T1 for the S&P 500 rolling
+#|   windows: irregular, lowest at T1 = 76, where a green vertical line marks the
+#|   optimal T1*, with a second, slightly higher dip near T1 = 350.
 chi_sq_lambda_plot(lag_spx)
 ```
 
 ```{r spxroll-output-T1, fig.width=6, fig.height=4}
+#| fig.alt: >
+#|   The estimated critical time against T1 for the S&P 500 rolling windows, with
+#|   nested likelihood-interval bands. The PLE and MPLE climb from about 2717 at
+#|   T1 = 1 to the top of the candidate grid, about 2928, by T1 = 125 and stay
+#|   there, while the bands close in on the same limit.
 rolling_tc_plot(roll_spx)   # PLE saturates at the tc bound
 ```
 

@@ -31,18 +31,15 @@
 #'   as approximate. The damping bound relaxes the theoretical \eqn{D > 1}, which
 #'   keeps the crash hazard rate non-negative (Graf v. Bothmer & Meister, 2003),
 #'   because a real crash unfolds over weeks rather than in one immediate jump.\cr
-#'   NOTE: For `trace_plot` mode 2 and 3 (`bm` and `bo`), lower for `B` should
-#'   be set to the desired minimum value of the B-axis in the contour
-#'   plotting.\cr
-#'   Example:\cr
-#'   \preformatted{lower = c(0.1, 6, -0.03, 0.8)}
-#'   If the optimization algorithm goes below the lower limits at any point
-#'   the lower limit for the B-axis will be extended automatically.
+#'   `lower[3]` is not used: `B` is only checked against `upper[3]`.
 #' @param upper Numeric vector of length 4, upper bounds for
 #'   `c(m, omega, B, D)`. Default: `c(0.9, 13, -1e-14, 1e6)`.
-#' @param tc_init Numeric, initial value of critical time `tc` for optim()
-#'   (default 1000). `tc_init` should be in \eqn{[T_2+1, T_3]}, where
-#'   \eqn{T_3 = T_2 + s}, and \eqn{s} is the forecast horizon.
+#' @param tc_init Numeric, initial value of the critical time `tc` (default
+#'   1000). Used only in mode `"F1"`, which optimises `tc` jointly with `m` and
+#'   `omega`; it should then lie in \eqn{[T_2+1, T_2+f_h]}{[T2 + 1, T2 + fh]}.
+#'   Modes `"F2"` and `"MPL"` run `tc` over the grid \eqn{T_2+1, \dots, T_2+f_h}{T2 + 1, ..., T2 + fh}
+#'   and refine it by a Brent search over the same interval, which needs no
+#'   starting value, so there `tc_init` has no effect.
 #' @param m_init Numeric, initial value of power law exponent `m` for optim()
 #'   (default 0.5). `m_init` should be in [`lower[1]`, `upper[1]`].
 #'   The algorithm will search for initial values of `m` and `omega` that give
@@ -78,17 +75,14 @@
 #'   value is fixed to the estimate with the lowest objective function value.
 #' @param sp Logical, whether to generate surface plot (default `FALSE`). `tc`
 #'   value is fixed to the estimate with the lowest objective function value.
-#' @param tp Numeric vector of length 3, 0/1 selectors for trace plots.
-#'   Plot 1: `m-omega`, plot 2: `B-m`, plot 3:`B-omega` (default `c(0, 0, 0)`).\cr
-#'   Example: `c(1, 0, 1)` selects trace plot 1 and 3. Traces convergence of
-#'   parameters during optimization of F2 objective function. Only works when
-#'   `mode = "F2"`. The plotted trace path is the one for the value of `tc` that
-#'   produced the smallest value of `SSE2`.\cr
-#'   NOTE: Contour plots in trace plot 2 and 3 only apply to the first step in
-#'   the trace. In a trace plot wrt `B` and `m`, `omega` is not fixed (and vice
-#'   versa for `m` and `omega`).
-#' @param tp_id Integer, which trace step to use for contour plot (default 1).
-#'   If the indicated id is too high, 1 will be chosen.
+#' @param tp Logical, whether to generate the trace plot (default `FALSE`): the
+#'   path the optimizer took through `(m, omega)` in the search that produced
+#'   the estimate, replayed at the final `tc` and drawn over the SSE surface it
+#'   minimised, with the linear parameters solved by least squares at each
+#'   point. `B` and the damping `D` follow from that solution, so they appear as
+#'   shaded regions: where it would have `B >= upper[3]` or `D < lower[4]`, the
+#'   conditions [print.lppls_fit()] reports as out of range. Only available in
+#'   modes `"F2"` and `"MPL"`.
 #' @param pp Logical, whether to generate parameter plot (default `FALSE`).
 #' @param mp Logical, whether to generate matrix plot (default `FALSE`).
 #'   x-axis is `tc`, y-axis is `SSE`.
@@ -255,12 +249,8 @@
 #'       contour plot of SSE wrt `m` and `omega`.}
 #'     \item{contour_plot}{(if requested) plotly object for contour plot}
 #'     \item{surface_plot}{(if requested) plotly object for surface plot}
-#'     \item{trace_plot_mo}{(if requested) ggplot2 object containing trace plot
-#'       for `m` and `omega`}
-#'     \item{trace_plot_bm}{(if requested) ggplot2 object containing trace plot
-#'       for `B` and `m`}
-#'     \item{trace_plot_bo}{(if requested) ggplot2 object for containing trace
-#'       plot for `B` and `omega`}
+#'     \item{trace_plot}{(if requested) ggplot2 object for the trace plot (see
+#'       `tp`)}
 #'     \item{param_plot}{(if requested) ggplot2 object for parameter plot}
 #'     \item{matrix_plot}{(if requested) ggplot2 object for matrix plot}
 #'     \item{out_of_range_tracker}{List tracking which fits had out-of-range
@@ -410,8 +400,7 @@ fit_lppls <- function(
   fp = FALSE,
   cp = FALSE,
   sp = FALSE,
-  tp = c(0, 0, 0),
-  tp_id = 1,
+  tp = FALSE,
   pp = FALSE,
   mp = FALSE,
   factr = 1e7,
@@ -436,6 +425,11 @@ fit_lppls <- function(
   if (length(lower) != 4 || length(upper) != 4) {
     stop("lower and upper must be vectors of length 4")
   }
+
+  if (length(tp) != 1L || is.na(as.logical(tp))) {
+    stop("'tp' must be TRUE or FALSE")
+  }
+  tp <- as.logical(tp)
 
   start_time <- Sys.time()
 
@@ -486,9 +480,7 @@ fit_lppls <- function(
   contour_data <- NULL
   contour_plot_obj <- NULL
   surface_plot_obj <- NULL
-  trace_plot_mo <- NULL
-  trace_plot_bm <- NULL
-  trace_plot_bo <- NULL
+  trace_plot_obj <- NULL
   param_plot_obj <- NULL
   matrix_plot_obj <- NULL
   out_of_range_tracker <- list(B = list(), D = list())
@@ -880,7 +872,8 @@ fit_lppls <- function(
         mpl_output = mpl_output,
         fit = fit,
         n = n,
-        fh = fh
+        fh = fh,
+        cutoff = mpl_cutoff
       )
     }
   }
@@ -940,11 +933,10 @@ fit_lppls <- function(
     )
   }
 
-  ## Trace plots (F2/MPL mode only) ==========================================
-  if (any(tp != 0)) {
+  ## Trace plot (F2/MPL mode only) ===========================================
+  if (tp) {
     if (mode == "F2" || mode == "MPL") {
       tc_val <- fit[[1]]$tc
-      need_B <- (tp[2] == 1 || tp[3] == 1)
 
       ## Replay the best search's optimization, tracing the parameter path.
       ## Start from the same initial point that search used (cf. the search loop):
@@ -992,50 +984,17 @@ fit_lppls <- function(
                 " iterations; the plotted path is truncated.")
       }
 
-      opt_trace <- vapply(path[seq_len(n_step)], function(p_i) {
-        if (need_B) {
-          c(p_i, unname(beta_calculator(log_p, t, tc_val, p_i[1], p_i[2])["B"]))
-        } else {
-          p_i
-        }
-      }, numeric(if (need_B) 3L else 2L))
+      opt_trace <- vapply(path[seq_len(n_step)], function(p_i) p_i, numeric(2))
 
       ## Prepend the actual starting point (the red start dot)
-      if (need_B) {
-        init_B <- unname(
-          beta_calculator(log_p, t, tc_val, init_replay[1], init_replay[2])["B"]
-        )
-        opt_trace <- matrix(
-          c(init_replay[1], init_replay[2], init_B, opt_trace),
-          byrow = FALSE,
-          nrow = 3
-        )
-      } else {
-        opt_trace <- matrix(c(init_replay[1], init_replay[2], opt_trace),
-                            byrow = FALSE, nrow = 2)
-      }
+      opt_trace <- matrix(c(init_replay[1], init_replay[2], opt_trace),
+                          byrow = FALSE, nrow = 2)
 
-      ## Generate requested trace plots
-      if (tp[1] == 1) {
-        trace_plot_mo <- create_trace_plot(
-          1, opt_trace, lower, upper, SSE2, beta_calculator,
-          tc_val, log_p, t, tp_id, fb
-        )
-      }
-      if (tp[2] == 1) {
-        trace_plot_bm <- create_trace_plot(
-          2, opt_trace, lower, upper, SSE2, beta_calculator,
-          tc_val, log_p, t, tp_id, fb
-        )
-      }
-      if (tp[3] == 1) {
-        trace_plot_bo <- create_trace_plot(
-          3, opt_trace, lower, upper, SSE2, beta_calculator,
-          tc_val, log_p, t, tp_id, fb
-        )
-      }
+      trace_plot_obj <- create_trace_plot(
+        opt_trace, lower, upper, SSE2, beta_calculator, tc_val, log_p, t, fb
+      )
     } else {
-      warning("Trace plots are only available when mode = 'F2' or 'MPL'")
+      warning("The trace plot is only available when mode = 'F2' or 'MPL'")
     }
   }
 
@@ -1064,9 +1023,7 @@ fit_lppls <- function(
       contour_data = contour_data,
       contour_plot = contour_plot_obj,
       surface_plot = surface_plot_obj,
-      trace_plot_mo = trace_plot_mo,
-      trace_plot_bm = trace_plot_bm,
-      trace_plot_bo = trace_plot_bo,
+      trace_plot = trace_plot_obj,
       param_plot = param_plot_obj,
       matrix_plot = matrix_plot_obj,
       out_of_range_tracker = out_of_range_tracker,
@@ -1522,8 +1479,7 @@ print.lppls_fit <- function(x, ...) {
 #' @export
 plot.lppls_fit <- function(x, which = c("basin", "param_basin", "fit", "mpl",
                                         "mpl_relative", "param", "matrix",
-                                        "trace_mo", "trace_bm", "trace_bo",
-                                        "contour", "surface"), ...) {
+                                        "trace", "contour", "surface"), ...) {
   which <- match.arg(which)
 
   if (which == "mpl_relative") {
@@ -1541,8 +1497,7 @@ plot.lppls_fit <- function(x, which = c("basin", "param_basin", "fit", "mpl",
 
   if (!which %in% c("basin", "param_basin")) {
     slot <- c(fit = "fit_plot", mpl = "mpl_plot", param = "param_plot",
-              matrix = "matrix_plot", trace_mo = "trace_plot_mo",
-              trace_bm = "trace_plot_bm", trace_bo = "trace_plot_bo",
+              matrix = "matrix_plot", trace = "trace_plot",
               contour = "contour_plot", surface = "surface_plot")[[which]]
     p <- x[[slot]]
     if (is.null(p)) {

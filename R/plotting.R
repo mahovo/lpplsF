@@ -365,14 +365,28 @@ compute_H_matrix <- function(Psi, tc, log_p, t) {
 #' colour and linetype of every series, so the absolute and the relative MPL
 #' plot draw them identically.
 #'
+#' Each interval is named for its cutoff as a percentage, `LI_05` for 0.05, as
+#' in [noise_tc_plot()]. Colours and linetypes go to the intervals in order, so
+#' the default cutoffs keep their green, orange and red.
+#'
+#' @param cutoff Numeric, the likelihood-interval cutoffs `mpl_output` was
+#'   computed with.
+#'
 #' @keywords internal
 #' @noRd
-.mpl_markers <- function(mpl_output, fit) {
+.mpl_markers <- function(mpl_output, fit, cutoff = c(0.05, 0.1, 0.5)) {
   vmarks <- data.frame(
     xintercept = c(fit[[1]]$tc, mpl_output$tc_hat_mpl),
     series = c("PLE", "MPLE")
   )
-  li_names <- c("LI_05", "LI_10", "LI_50")
+  ## Cutoffs that do not match the intervals (a fit made without recording
+  ## them) can only be numbered, as print.lppls_fit() does.
+  li_names <- if (length(cutoff) == length(mpl_output$LI)) {
+    sprintf("LI_%02g", 100 * cutoff)
+  } else {
+    sprintf("LI[%d]", seq_along(mpl_output$LI))
+  }
+  k <- length(li_names)
   for (i in seq_along(mpl_output$LI)) {
     li <- mpl_output$LI[[i]]
     if (!any(is.na(li))) {
@@ -386,11 +400,14 @@ compute_H_matrix <- function(Psi, tc, log_p, t) {
   list(
     vmarks   = vmarks,
     li_names = li_names,
-    levels   = c("PLE", "MPLE", "LI_05", "LI_10", "LI_50"),
-    cols     = c(PLE = "blue", MPLE = "blue", LI_05 = "green3",
-                 LI_10 = "orange", LI_50 = "red"),
-    ltys     = c(PLE = "solid", MPLE = "dashed", LI_05 = "dashed",
-                 LI_10 = "dotted", LI_50 = "dotdash")
+    levels   = c("PLE", "MPLE", li_names),
+    cols     = c(PLE = "blue", MPLE = "blue",
+                 stats::setNames(rep_len(c("green3", "orange", "red", "purple",
+                                           "brown", "darkcyan"), k), li_names)),
+    ltys     = c(PLE = "solid", MPLE = "dashed",
+                 stats::setNames(rep_len(c("dashed", "dotted", "dotdash",
+                                           "longdash", "twodash", "dashed"), k),
+                                 li_names))
   )
 }
 
@@ -399,7 +416,7 @@ compute_H_matrix <- function(Psi, tc, log_p, t) {
 #'
 #' @keywords internal
 #' @noRd
-create_mpl_plot <- function(mpl_output, fit, n, fh) {
+create_mpl_plot <- function(mpl_output, fit, n, fh, cutoff = c(0.05, 0.1, 0.5)) {
   tc_seq <- (n + 1):(n + fh)
 
   df_plot <- data.frame(
@@ -407,7 +424,7 @@ create_mpl_plot <- function(mpl_output, fit, n, fh) {
     log_mpl = mpl_output$LL
   )
 
-  mk      <- .mpl_markers(mpl_output, fit)
+  mk      <- .mpl_markers(mpl_output, fit, cutoff)
   vmarks  <- mk$vmarks
   present <- mk$levels[mk$levels %in% vmarks$series]
   vmarks$series <- factor(vmarks$series, levels = present)
@@ -451,7 +468,7 @@ create_mpl_plot <- function(mpl_output, fit, n, fh) {
 #' @keywords internal
 #' @noRd
 create_mpl_relative_plot <- function(mpl_output, fit, n, cutoff, pad = 1.2) {
-  mk       <- .mpl_markers(mpl_output, fit)
+  mk       <- .mpl_markers(mpl_output, fit, cutoff)
   vmarks   <- mk$vmarks
   h_series <- mk$li_names[seq_along(cutoff)]
   present  <- mk$levels[mk$levels %in% c(vmarks$series, h_series)]
@@ -685,11 +702,15 @@ create_matrix_plot <- function(n, fh, lower, upper, log_p, t, SSE2_func) {
 
 #' Create Trace Plot
 #'
-#' Visualizes the L-BFGS-B optimization path over an SSE contour surface.
-#' Three selectors: 1 = (m, omega), 2 = (B, m), 3 = (B, omega).
+#' Visualizes the L-BFGS-B optimization path over the SSE surface in
+#' `(m, omega)`, the objective the search minimises: at each point the linear
+#' parameters are solved by least squares. `B` and the damping `D` are not
+#' search coordinates; they follow from that least-squares solution, so they are
+#' drawn as regions. Shaded are the parts of the surface where the solution would
+#' be out of range, `B >= upper[3]` in black and `D < lower[4]` in white, each
+#' edged with a dashed line.
 #'
-#' @param selector Integer (1, 2, or 3) selecting which parameter pair to plot.
-#' @param opt_trace Matrix with 2 or 3 rows (m, omega, [B]) and one column per step.
+#' @param opt_trace Matrix with 2 rows (m, omega) and one column per step.
 #' @param lower Numeric vector of length 4, parameter lower bounds.
 #' @param upper Numeric vector of length 4, parameter upper bounds.
 #' @param SSE2_func SSE2 function (fixed tc) from fit_lppls.
@@ -697,7 +718,6 @@ create_matrix_plot <- function(n, fh, lower, upper, log_p, t, SSE2_func) {
 #' @param tc_val Numeric, the tc value for the trace.
 #' @param log_p Numeric vector of log-prices.
 #' @param t Numeric vector of time indices.
-#' @param tp_id Integer, which trace step to use for contour in selectors 2/3.
 #' @param fb Logical, whether to print feedback.
 #'
 #' @return A ggplot2 object.
@@ -705,7 +725,6 @@ create_matrix_plot <- function(n, fh, lower, upper, log_p, t, SSE2_func) {
 #' @keywords internal
 #' @noRd
 create_trace_plot <- function(
-    selector,
     opt_trace,
     lower,
     upper,
@@ -714,218 +733,100 @@ create_trace_plot <- function(
     tc_val,
     log_p,
     t,
-    tp_id,
     fb = FALSE
   ) {
-  if (fb) message(sprintf("Generating trace plot %d...", selector))
+  if (fb) message("Generating trace plot...")
 
   lattice_dim <- 100
 
-  if (selector == 1) {
-    ## m vs omega lattice
-    lattice <- as.matrix(expand.grid(
-      m = seq(
-        min(lower[1], min(opt_trace[1, ])),
-        max(upper[1], max(opt_trace[1, ])),
-        length.out = lattice_dim
-      ),
-      omega = seq(
-        min(lower[2], min(opt_trace[2, ])),
-        max(upper[2], max(opt_trace[2, ])),
-        length.out = lattice_dim
-      )
-    ))
-    lattice_vals <- apply(lattice, 1, SSE2_func,
-                          tc = tc_val, log_p = log_p, t = t)
-
-  } else if (selector == 2) {
-    ## B vs m lattice
-    lattice <- as.matrix(expand.grid(
-      m = seq(
-        min(lower[1], min(opt_trace[1, ])),
-        max(upper[1], max(opt_trace[1, ])),
-        length.out = lattice_dim
-      ),
-      B = seq(
-        min(lower[3], min(opt_trace[3, ])),
-        max(upper[3], max(opt_trace[3, ])),
-        length.out = lattice_dim
-      )
-    ))
-
-    beta_tp <- beta_calc(log_p, t, tc_val, opt_trace[1, 1], opt_trace[2, 1])
-
-    if (tp_id < 1 || tp_id > ncol(opt_trace)) {
-      tp_id <- 1
-      warning("tp_id for (B,m) trace plot is <1 or too high. Replaced with tp_id=1\n")
-    }
-
-    ## Named for its selector: the (B, m) lattice varies m and B at fixed omega.
-    ## The (B, omega) branch below needs a different signature, so the two must
-    ## not share a name.
-    SSE_bm <- function(par, a, c1, c2, tc, omega, log_p, t) {
-      SSE(
-        par = list(
-          A = a,
-          B = par[2],
-          C1 = c1,
-          C2 = c2,
-          tc = tc,
-          m = par[1],
-          omega = omega
-        ),
-        log_p = log_p,
-        t = t
-      )
-    }
-
-    lattice_vals <- apply(
-      lattice,
-      1,
-      SSE_bm,
-      a = unname(beta_tp["A"]),
-      c1 = unname(beta_tp["C1"]),
-      c2 = unname(beta_tp["C2"]),
-      tc = tc_val,
-      omega = opt_trace[2, tp_id],
-      log_p = log_p,
-      t = t
+  ## m vs omega lattice
+  lattice <- as.matrix(expand.grid(
+    m = seq(
+      min(lower[1], min(opt_trace[1, ])),
+      max(upper[1], max(opt_trace[1, ])),
+      length.out = lattice_dim
+    ),
+    omega = seq(
+      min(lower[2], min(opt_trace[2, ])),
+      max(upper[2], max(opt_trace[2, ])),
+      length.out = lattice_dim
     )
-
-  } else if (selector == 3) {
-    ## B vs omega lattice
-    lattice <- as.matrix(expand.grid(
-      omega = seq(
-        min(lower[2], min(opt_trace[2, ])),
-        max(upper[2], max(opt_trace[2, ])),
-        length.out = lattice_dim
-      ),
-      B = seq(
-        min(lower[3], min(opt_trace[3, ])),
-        max(upper[3], max(opt_trace[3, ])),
-        length.out = lattice_dim
-      )
-    ))
-
-    beta_tp <- beta_calc(log_p, t, tc_val, opt_trace[1, 1], opt_trace[2, 1])
-
-    if (tp_id > ncol(opt_trace)) {
-      tp_id <- 1
-      warning("tp_id for (B,omega) trace plot too high. Replaced with tp_id=1\n")
-    }
-
-    ## The (B, omega) lattice: varies omega and B at fixed m.
-    SSE_bo <- function(par, a, c1, c2, tc, m, log_p, t) {
-      SSE(
-        par = list(
-          A = a,
-          B = par[2],
-          C1 = c1,
-          C2 = c2,
-          tc = tc,
-          m = m,
-          omega = par[1]
-        ),
-        log_p = log_p,
-        t = t
-      )
-    }
-
-    lattice_vals <- apply(
-      lattice,
-      1,
-      SSE_bo,
-      a = unname(beta_tp["A"]),
-      c1 = unname(beta_tp["C1"]),
-      c2 = unname(beta_tp["C2"]),
-      tc = tc_val,
-      m = opt_trace[1, tp_id],
-      log_p = log_p,
-      t = t
-    )
-  }
+  ))
+  lattice_vals <- apply(lattice, 1, SSE2_func,
+                        tc = tc_val, log_p = log_p, t = t)
 
   lattice <- as.data.frame(lattice)
   lattice$vals <- lattice_vals
 
-  if (selector == 1) {
-    opt_df <- data.frame(m = opt_trace[1, ], omega = opt_trace[2, ])
-    opt_df$step <- seq_len(nrow(opt_df))
+  ## The least-squares B and damping D at each lattice point. fit_lppls() checks
+  ## both on the result of a search rather than bounding the search, and reports
+  ## a fit with B >= upper[3] or D < lower[4] as out of range.
+  beta <- vapply(seq_len(nrow(lattice)), function(i) {
+    beta_calc(log_p, t, tc_val, lattice$m[i], lattice$omega[i])
+  }, numeric(4))
+  lattice$B <- beta["B", ]
+  lattice$D <- calculate_damping(lattice$m, lattice$B, lattice$omega,
+                                 beta["C1", ], beta["C2", ])
 
-    p <- ggplot2::ggplot(lattice, ggplot2::aes(x = m, y = omega)) +
-      ggplot2::geom_raster(ggplot2::aes(fill = vals)) +
-      ggplot2::geom_contour(ggplot2::aes(z = vals), col = "white") +
-      ggplot2::geom_path(data = opt_df, col = "orange") +
-      ggplot2::geom_point(data = opt_df, col = "orange") +
-      ggplot2::geom_point(
-        data = utils::head(opt_df, 1),
-        shape = 21,
-        fill = "red",
-        color = "orange",
-        size = 3
-      ) +
-      ggplot2::geom_point(
-        data = utils::tail(opt_df, 1),
-        shape = 23,
-        fill = "green",
-        color = "orange",
-        size = 3
-      ) +
-      ggplot2::scale_fill_viridis_c() +
-      ggplot2::coord_cartesian(expand = FALSE)
+  regions <- list(
+    "B out of range" = list(var = "B", at = upper[3], fill = "black",
+                            inside = which(lattice$B >= upper[3])),
+    "D out of range" = list(var = "D", at = lower[4], fill = "white",
+                            inside = which(lattice$D < lower[4]))
+  )
 
-  } else if (selector == 2) {
-    opt_df <- data.frame(m = opt_trace[1, ], B = opt_trace[3, ])
-    opt_df$step <- seq_len(nrow(opt_df))
+  opt_df <- data.frame(m = opt_trace[1, ], omega = opt_trace[2, ])
+  opt_df$step <- seq_len(nrow(opt_df))
 
-    p <- ggplot2::ggplot(lattice, ggplot2::aes(x = m, y = B)) +
-      ggplot2::geom_raster(ggplot2::aes(fill = vals)) +
-      ggplot2::geom_contour(ggplot2::aes(z = vals), col = "white") +
-      ggplot2::geom_path(data = opt_df, col = "orange") +
-      ggplot2::geom_point(data = opt_df, col = "orange") +
-      ggplot2::geom_point(
-        data = utils::head(opt_df, 1),
-        shape = 21,
-        fill = "red",
-        color = "orange",
-        size = 3
-      ) +
-      ggplot2::geom_point(
-        data = utils::tail(opt_df, 1),
-        shape = 23,
-        fill = "green",
-        color = "orange",
-        size = 3
-      ) +
-      ggplot2::scale_fill_viridis_c() +
-      ggplot2::coord_cartesian(expand = FALSE)
+  p <- ggplot2::ggplot(lattice, ggplot2::aes(x = m, y = omega)) +
+    ggplot2::geom_raster(ggplot2::aes(fill = vals)) +
+    ggplot2::geom_contour(ggplot2::aes(z = vals), col = "white")
 
-  } else if (selector == 3) {
-    opt_df <- data.frame(omega = opt_trace[2, ], B = opt_trace[3, ])
-    opt_df$step <- seq_len(nrow(opt_df))
-
-    p <- ggplot2::ggplot(lattice, ggplot2::aes(x = omega, y = B)) +
-      ggplot2::geom_raster(ggplot2::aes(fill = vals)) +
-      ggplot2::geom_contour(ggplot2::aes(z = vals), col = "white") +
-      ggplot2::geom_path(data = opt_df, col = "orange") +
-      ggplot2::geom_point(data = opt_df, col = "orange") +
-      ggplot2::geom_point(
-        data = utils::head(opt_df, 1),
-        shape = 21,
-        fill = "red",
-        color = "orange",
-        size = 3
-      ) +
-      ggplot2::geom_point(
-        data = utils::tail(opt_df, 1),
-        shape = 23,
-        fill = "green",
-        color = "orange",
-        size = 3
-      ) +
-      ggplot2::scale_fill_viridis_c() +
-      ggplot2::coord_cartesian(expand = FALSE)
+  ## Shade each non-empty region and edge it, unless it fills the whole lattice
+  ## and so has no edge to draw. The edge carries the legend.
+  dm <- diff(range(lattice$m)) / (lattice_dim - 1)
+  dw <- diff(range(lattice$omega)) / (lattice_dim - 1)
+  edged <- character(0)
+  for (r in names(regions)) {
+    g <- regions[[r]]
+    if (length(g$inside) == 0L) next
+    p <- p + ggplot2::geom_tile(data = lattice[g$inside, ], width = dm,
+                                height = dw, fill = g$fill, alpha = 0.4)
+    if (length(g$inside) < nrow(lattice)) {
+      p <- p + ggplot2::geom_contour(
+        ggplot2::aes(z = !!as.name(g$var), colour = !!r),
+        breaks = g$at, linetype = "dashed", linewidth = 0.7
+      )
+      edged <- c(edged, r)
+    }
   }
+  if (length(edged) > 0L) {
+    p <- p +
+      ggplot2::scale_colour_manual(
+        name = NULL, values = vapply(regions, `[[`, "", "fill")
+      ) +
+      ggplot2::theme(legend.key = ggplot2::element_rect(fill = "grey50"))
+  }
+
+  p <- p +
+    ggplot2::geom_path(data = opt_df, col = "orange") +
+    ggplot2::geom_point(data = opt_df, col = "orange") +
+    ggplot2::geom_point(
+      data = utils::head(opt_df, 1),
+      shape = 21,
+      fill = "red",
+      color = "orange",
+      size = 3
+    ) +
+    ggplot2::geom_point(
+      data = utils::tail(opt_df, 1),
+      shape = 23,
+      fill = "green",
+      color = "orange",
+      size = 3
+    ) +
+    ggplot2::scale_fill_viridis_c() +
+    ggplot2::coord_cartesian(expand = FALSE)
 
   if (fb) message("Trace plot generated")
   p
@@ -1347,8 +1248,9 @@ sse_contour_plot <- function(
 #' Plot tc Estimates and Likelihood Intervals Across Rolling T1
 #'
 #' Plots the point estimate of the critical time \eqn{t_c} (profile likelihood,
-#' black; modified profile likelihood, cyan) with the 5\%, 10\% and 50\%
-#' likelihood-interval bands, as a function of the rolling calibration start time
+#' black; modified profile likelihood, cyan) with a likelihood-interval band for
+#' each cutoff (by default 5\%, 10\% and 50\%), as a function of the rolling
+#' calibration start time
 #' \eqn{T_1}. This is a general window-diagnostic -- useful with or without
 #' Lagrange regularization -- and reproduces the `*_output_T1` figure from the
 #' thesis. Requires the rolling calibration to have been run in `mode = "MPL"`.
@@ -1369,28 +1271,36 @@ rolling_tc_plot <- function(x) {
   }
 
   tab <- x$table
-  cols <- c("LI_05" = "green", "LI_10" = "orange", "LI_50" = "red",
+
+  ## The interval columns are named for their cutoff, LI5l/LI5u for 0.05; find
+  ## the pairs by name, as noise_tc_plot() does, and take them in cutoff order.
+  lo_cols <- grep("^LI[0-9.]+l$", names(tab), value = TRUE)
+  pairs   <- lapply(lo_cols, function(lo) {
+    hi <- sub("l$", "u", lo)
+    if (!hi %in% names(tab)) return(NULL)
+    list(lo = lo, hi = hi, pct = as.numeric(sub("^LI([0-9.]+)l$", "\\1", lo)))
+  })
+  pairs <- Filter(Negate(is.null), pairs)
+  pairs <- pairs[order(vapply(pairs, function(p) p$pct, numeric(1)))]
+  bands <- vapply(pairs, function(p) sprintf("LI_%02g", p$pct), character(1))
+
+  ## Colours go to the bands in order, so the default three keep theirs.
+  cols <- c(stats::setNames(rep_len(c("green", "orange", "red", "purple", "brown",
+                                      "darkcyan"), length(bands)), bands),
             "MPLE" = "cyan", "PLE" = "black")
 
-  ggplot2::ggplot(tab, ggplot2::aes(x = T1, y = tc)) +
-    ggplot2::geom_ribbon(
-      ggplot2::aes(ymin = LI5l, ymax = LI5u, color = "LI_05"),
+  p <- ggplot2::ggplot(tab, ggplot2::aes(x = T1, y = tc))
+  for (i in seq_along(pairs)) {
+    p <- p + ggplot2::geom_ribbon(
+      ggplot2::aes(ymin = !!as.name(pairs[[i]]$lo), ymax = !!as.name(pairs[[i]]$hi),
+                   color = !!bands[i]),
       fill = "grey50",
       alpha = 0.2,
       key_glyph = "path"
-    ) +
-    ggplot2::geom_ribbon(
-      ggplot2::aes(ymin = LI10l, ymax = LI10u, color = "LI_10"),
-      fill = "grey50",
-      alpha = 0.2,
-      key_glyph = "path"
-    ) +
-    ggplot2::geom_ribbon(
-      ggplot2::aes(ymin = LI50l, ymax = LI50u, color = "LI_50"),
-      fill = "grey50",
-      alpha = 0.2,
-      key_glyph = "path"
-    ) +
+    )
+  }
+
+  p +
     ggplot2::geom_line(ggplot2::aes(color = "PLE"), linewidth = 1) +
     ggplot2::geom_line(ggplot2::aes(y = tc_hat_mpl, color = "MPLE"), linewidth = 0.25) +
     ggplot2::scale_color_manual(name = NULL, values = cols, breaks = names(cols)) +
@@ -1484,7 +1394,18 @@ residual_qq_plot <- function(residuals, distribution = c("normal", "t"),
     if (!requireNamespace("MASS", quietly = TRUE)) {
       stop("Package 'MASS' is needed for distribution = \"t\"; please install it.")
     }
-    nu        <- MASS::fitdistr(residuals, "t")$estimate[["df"]]
+    ## fitdistr()'s optimiser tries negative scales on its way to the estimate,
+    ## and dt() then warns "NaNs produced". Those warnings say nothing about the
+    ## fit, so muffle them, and only them.
+    t_fit <- withCallingHandlers(
+      MASS::fitdistr(residuals, "t"),
+      warning = function(w) {
+        if (grepl("NaNs produced", conditionMessage(w), fixed = TRUE)) {
+          invokeRestart("muffleWarning")
+        }
+      }
+    )
+    nu        <- t_fit$estimate[["df"]]
     dp        <- list(df = nu)
     x_ref     <- stats::qt(ref, df = nu)
     qq_layers <- list(

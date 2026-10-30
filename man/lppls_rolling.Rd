@@ -43,8 +43,9 @@ An object of class \code{"lppls_rolling"}: a list with
 \item{table}{Data frame with one row per window: \code{T1}, \code{n_cal}, the
 absolute point estimates \code{tc}, \code{m}, \code{omega}, \code{A}, \code{B}, \code{C1}, \code{C2}, \code{D},
 the calibration-region residual sum of squares \code{sse_cal}, the absolute
-likelihood-interval bounds \code{LI5l}/\code{LI5u}/\code{LI10l}/\code{LI10u}/\code{LI50l}/\code{LI50u}
-and the absolute modified-profile-likelihood estimate \code{tc_hat_mpl}.}
+likelihood-interval bounds, one pair per cutoff (with the default
+cutoffs \code{LI5l}/\code{LI5u}/\code{LI10l}/\code{LI10u}/\code{LI50l}/\code{LI50u}), and the
+absolute modified-profile-likelihood estimate \code{tc_hat_mpl}.}
 \item{fits}{List of best-fit parameter lists (\code{fit[[1]]}) per window, in
 window-local time.}
 \item{t1_seq, T2, hold_out, fh, n_full}{The calibration setup.}
@@ -76,6 +77,9 @@ absolute time by adding \eqn{T_1 - 1} before being returned.
 The likelihood-interval columns (\code{LI5l} ... \code{tc_hat_mpl}) are populated only
 when the fit is run in \code{mode = "MPL"} (the default); under \code{mode = "F2"} they
 are \code{NA} but the point estimates and \code{sse_cal} (hence Lagrange) are identical.
+There is one pair of interval columns per cutoff in \code{fit_args$mpl_cutoff},
+named for the cutoff as a percentage: \code{LI5l} and \code{LI5u} for 0.05, \code{LI1l} and
+\code{LI1u} for 0.01.
 }
 \section{Profiling on macOS}{
 

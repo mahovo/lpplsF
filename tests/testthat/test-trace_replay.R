@@ -7,7 +7,7 @@
 # generating it never perturbs the fit.
 
 ## Small, fast fixture shared by the tests below.
-trace_fixture <- function(num_searches = 1L, tp = c(1, 0, 0), seed = 1L) {
+trace_fixture <- function(num_searches = 1L, tp = TRUE, seed = 1L) {
   set.seed(seed)
   n       <- 200L
   tc_true <- 220
@@ -38,7 +38,7 @@ test_that("the trace contains no duplicated points", {
   skip_on_cran()
 
   f <- trace_fixture()
-  path <- trace_path(f$fit$trace_plot_mo)
+  path <- trace_path(f$fit$trace_plot)
 
   ## More than just a start dot: the optimiser did move.
   expect_gt(nrow(path), 1L)
@@ -63,7 +63,7 @@ test_that("the trace ends at the converged optimum", {
   skip_on_cran()
 
   f <- trace_fixture()
-  path <- trace_path(f$fit$trace_plot_mo)
+  path <- trace_path(f$fit$trace_plot)
 
   bc   <- create_beta_calculator()
   sse2 <- function(par, tc, log_p, t) {
@@ -95,7 +95,7 @@ test_that("the trace length matches the number of real optimiser steps", {
   skip_on_cran()
 
   f <- trace_fixture()
-  path <- trace_path(f$fit$trace_plot_mo)
+  path <- trace_path(f$fit$trace_plot)
 
   bc   <- create_beta_calculator()
   sse2 <- function(par, tc, log_p, t) {
@@ -127,56 +127,24 @@ test_that("the trace length matches the number of real optimiser steps", {
 test_that("generating the trace does not change the fit", {
   skip_on_cran()
 
-  with_trace    <- trace_fixture(tp = c(1, 1, 1))$fit
-  without_trace <- trace_fixture(tp = c(0, 0, 0))$fit
+  with_trace    <- trace_fixture(tp = TRUE)$fit
+  without_trace <- trace_fixture(tp = FALSE)$fit
 
   expect_equal(with_trace$fit[[1]], without_trace$fit[[1]])
   expect_equal(with_trace$fit[[2]], without_trace$fit[[2]])
   expect_equal(with_trace$fit[[4]], without_trace$fit[[4]])
 
-  ## and the trace plots are only attached when asked for
-  expect_null(without_trace$trace_plot_mo)
-  expect_null(without_trace$trace_plot_bm)
-  expect_null(without_trace$trace_plot_bo)
-})
-
-
-test_that("all three trace selectors share one path", {
-  skip_on_cran()
-
-  fit <- trace_fixture(tp = c(1, 1, 1))$fit
-  expect_s3_class(fit$trace_plot_mo, "ggplot")
-  expect_s3_class(fit$trace_plot_bm, "ggplot")
-  expect_s3_class(fit$trace_plot_bo, "ggplot")
-
-  p_mo <- trace_path(fit$trace_plot_mo)
-  p_bm <- trace_path(fit$trace_plot_bm)
-  p_bo <- trace_path(fit$trace_plot_bo)
-
-  ## One replay feeds all three, so they must agree in length ...
-  expect_equal(nrow(p_bm), nrow(p_mo))
-  expect_equal(nrow(p_bo), nrow(p_mo))
-
-  ## ... and in the coordinates they have in common.
-  expect_equal(p_bm$m, p_mo$m)
-  expect_equal(p_bo$omega, p_mo$omega)
-
-  ## The B column is present only for selectors 2 and 3.
-  expect_true(all(c("m", "B") %in% names(p_bm)))
-  expect_true(all(c("omega", "B") %in% names(p_bo)))
-  expect_equal(p_bm$B, p_bo$B)
-
-  ## Selectors 2 and 3 must be free of duplicates too.
-  expect_equal(anyDuplicated(p_bm), 0L)
-  expect_equal(anyDuplicated(p_bo), 0L)
+  ## and the trace plot is only attached when asked for
+  expect_s3_class(with_trace$trace_plot, "ggplot")
+  expect_null(without_trace$trace_plot)
 })
 
 
 test_that("the trace replay works when the best fit is a random restart", {
   skip_on_cran()
 
-  fit <- trace_fixture(num_searches = 3L, tp = c(1, 0, 0), seed = 7L)$fit
-  path <- trace_path(fit$trace_plot_mo)
+  fit <- trace_fixture(num_searches = 3L, tp = TRUE, seed = 7L)$fit
+  path <- trace_path(fit$trace_plot)
 
   expect_gt(nrow(path), 1L)
   expect_equal(anyDuplicated(path), 0L)

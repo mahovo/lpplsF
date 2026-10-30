@@ -31,6 +31,20 @@ test_that("distribution = 't' builds silently", {
                                                        distribution = "t")))
 })
 
+test_that("distribution = 't' keeps fitdistr()'s NaN warnings to itself", {
+  skip_if_not_installed("MASS")
+  set.seed(1)
+  x <- rt(200, df = 4)
+  ## This sample does send the optimiser through negative scales ...
+  expect_true(any(grepl("NaNs produced",
+                        testthat::capture_warnings(MASS::fitdistr(x, "t")))))
+  ## ... but the plot passes none of those warnings on, and uses fitdistr()'s
+  ## own estimate.
+  p  <- expect_no_warning(residual_qq_plot(x, distribution = "t"))
+  nu <- suppressWarnings(MASS::fitdistr(x, "t"))$estimate[["df"]]
+  expect_identical(p$layers[[1]]$stat_params$dparams$df, nu)
+})
+
 test_that("residual_qq_plot rejects non-numeric or too-short input", {
   expect_error(residual_qq_plot("a"))
   expect_error(residual_qq_plot(1))

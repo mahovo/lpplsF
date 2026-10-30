@@ -20,8 +20,7 @@ fit_lppls(
   fp = FALSE,
   cp = FALSE,
   sp = FALSE,
-  tp = c(0, 0, 0),
-  tp_id = 1,
+  tp = FALSE,
   pp = FALSE,
   mp = FALSE,
   factr = 1e+07,
@@ -50,20 +49,17 @@ Demos & Sornette (2017): \eqn{B < 0}, \eqn{D \geq 0.8},
 as approximate. The damping bound relaxes the theoretical \eqn{D > 1}, which
 keeps the crash hazard rate non-negative (Graf v. Bothmer & Meister, 2003),
 because a real crash unfolds over weeks rather than in one immediate jump.\cr
-NOTE: For \code{trace_plot} mode 2 and 3 (\code{bm} and \code{bo}), lower for \code{B} should
-be set to the desired minimum value of the B-axis in the contour
-plotting.\cr
-Example:\cr
-\preformatted{lower = c(0.1, 6, -0.03, 0.8)}
-If the optimization algorithm goes below the lower limits at any point
-the lower limit for the B-axis will be extended automatically.}
+\code{lower[3]} is not used: \code{B} is only checked against \code{upper[3]}.}
 
 \item{upper}{Numeric vector of length 4, upper bounds for
 \code{c(m, omega, B, D)}. Default: \code{c(0.9, 13, -1e-14, 1e6)}.}
 
-\item{tc_init}{Numeric, initial value of critical time \code{tc} for optim()
-(default 1000). \code{tc_init} should be in \eqn{[T_2+1, T_3]}, where
-\eqn{T_3 = T_2 + s}, and \eqn{s} is the forecast horizon.}
+\item{tc_init}{Numeric, initial value of the critical time \code{tc} (default
+1000). Used only in mode \code{"F1"}, which optimises \code{tc} jointly with \code{m} and
+\code{omega}; it should then lie in \eqn{[T_2+1, T_2+f_h]}{[T2 + 1, T2 + fh]}.
+Modes \code{"F2"} and \code{"MPL"} run \code{tc} over the grid \eqn{T_2+1, \dots, T_2+f_h}{T2 + 1, ..., T2 + fh}
+and refine it by a Brent search over the same interval, which needs no
+starting value, so there \code{tc_init} has no effect.}
 
 \item{m_init}{Numeric, initial value of power law exponent \code{m} for optim()
 (default 0.5). \code{m_init} should be in [\code{lower[1]}, \code{upper[1]}].
@@ -109,18 +105,14 @@ value is fixed to the estimate with the lowest objective function value.}
 \item{sp}{Logical, whether to generate surface plot (default \code{FALSE}). \code{tc}
 value is fixed to the estimate with the lowest objective function value.}
 
-\item{tp}{Numeric vector of length 3, 0/1 selectors for trace plots.
-Plot 1: \code{m-omega}, plot 2: \code{B-m}, plot 3:\code{B-omega} (default \code{c(0, 0, 0)}).\cr
-Example: \code{c(1, 0, 1)} selects trace plot 1 and 3. Traces convergence of
-parameters during optimization of F2 objective function. Only works when
-\code{mode = "F2"}. The plotted trace path is the one for the value of \code{tc} that
-produced the smallest value of \code{SSE2}.\cr
-NOTE: Contour plots in trace plot 2 and 3 only apply to the first step in
-the trace. In a trace plot wrt \code{B} and \code{m}, \code{omega} is not fixed (and vice
-versa for \code{m} and \code{omega}).}
-
-\item{tp_id}{Integer, which trace step to use for contour plot (default 1).
-If the indicated id is too high, 1 will be chosen.}
+\item{tp}{Logical, whether to generate the trace plot (default \code{FALSE}): the
+path the optimizer took through \verb{(m, omega)} in the search that produced
+the estimate, replayed at the final \code{tc} and drawn over the SSE surface it
+minimised, with the linear parameters solved by least squares at each
+point. \code{B} and the damping \code{D} follow from that solution, so they appear as
+shaded regions: where it would have \code{B >= upper[3]} or \code{D < lower[4]}, the
+conditions \code{\link[=print.lppls_fit]{print.lppls_fit()}} reports as out of range. Only available in
+modes \code{"F2"} and \code{"MPL"}.}
 
 \item{pp}{Logical, whether to generate parameter plot (default \code{FALSE}).}
 
@@ -296,12 +288,8 @@ Likelihood plot with likelihood intervals}
 contour plot of SSE wrt \code{m} and \code{omega}.}
 \item{contour_plot}{(if requested) plotly object for contour plot}
 \item{surface_plot}{(if requested) plotly object for surface plot}
-\item{trace_plot_mo}{(if requested) ggplot2 object containing trace plot
-for \code{m} and \code{omega}}
-\item{trace_plot_bm}{(if requested) ggplot2 object containing trace plot
-for \code{B} and \code{m}}
-\item{trace_plot_bo}{(if requested) ggplot2 object for containing trace
-plot for \code{B} and \code{omega}}
+\item{trace_plot}{(if requested) ggplot2 object for the trace plot (see
+\code{tp})}
 \item{param_plot}{(if requested) ggplot2 object for parameter plot}
 \item{matrix_plot}{(if requested) ggplot2 object for matrix plot}
 \item{out_of_range_tracker}{List tracking which fits had out-of-range

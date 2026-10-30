@@ -7,7 +7,7 @@
 \method{plot}{lppls_fit}(
   x,
   which = c("basin", "param_basin", "fit", "mpl", "mpl_relative", "param", "matrix",
-    "trace_mo", "trace_bm", "trace_bo", "contour", "surface"),
+    "trace", "contour", "surface"),
   ...
 )
 }

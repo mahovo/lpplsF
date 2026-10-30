@@ -202,7 +202,7 @@ run_pkg <- function(seed, mode = "F2") {
     log_price = log_pr, fh = fh, hold_out = hold_out,
     lower = lower, upper = upper, tc_init = tc_init, m_init = m_init, o_init = o_init,
     num_searches = num_searches, mode = mode, mpl_cutoff = c(0.05, 0.1, 0.5),
-    mpl_plot = FALSE, fp = FALSE, cp = FALSE, sp = FALSE, tp = c(0,0,0), tp_id = 1,
+    mpl_plot = FALSE, fp = FALSE, cp = FALSE, sp = FALSE, tp = FALSE,
     pp = FALSE, mp = FALSE, factr = 1e-08, fb = FALSE)
 }
 

@@ -104,8 +104,9 @@
 utils::globalVariables(c(
   ## fit tables (fit[[2]], fit[[4]]) and the parameter / basin plots
   "ID", "tc", "value", "m", "omega", "B", "estimate", "basin",
-  ## rolling tables and their likelihood-interval columns
-  "T1", "tc_hat_mpl", "LI5l", "LI5u", "LI10l", "LI10u", "LI50l", "LI50u",
+  ## rolling tables (the interval columns are named for their cutoffs and
+  ## looked up by name)
+  "T1", "tc_hat_mpl",
   ## Lagrange diagnostics
   "chi_sq_np", "chi_sq_lambda",
   ## MPL, SSE-surface and trace plots

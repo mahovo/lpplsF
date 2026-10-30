@@ -58,10 +58,11 @@ local_mock_fit_lppls <- function(stub, .calls = NULL,
 
 ## A simple stub that returns a fixed best fit using the window mean as A and
 ## zero oscillation amplitudes. Deterministic SSE, and no mpl_output (so the
-## likelihood-interval columns come back NA).
+## likelihood-interval columns come back NA). Like the real fitter it records
+## the cutoffs it ran with, which name those columns.
 make_fixed_stub <- function() {
   function(log_price, fh = 30, hold_out = 0, tc_init = NULL,
-           mode = "F2", ...) {
+           mode = "F2", mpl_cutoff = c(0.05, 0.1, 0.5), ...) {
     n_total <- length(log_price)
     n_cal <- n_total - hold_out
     A_hat <- mean(log_price[seq_len(n_cal)])
@@ -78,20 +79,23 @@ make_fixed_stub <- function() {
           D = 1,
           value = 0
         )
-      )
+      ),
+      fit_args = list(mode = mode, mpl_cutoff = mpl_cutoff)
     )
   }
 }
 
 ## A stub that also returns an `mpl_output` block (window-local likelihood
-## intervals centred on tc, plus tc_hat_mpl), so the LI columns and the
+## intervals centred on tc, one per cutoff and narrowing with it: +/-3, 2, 1 for
+## the default three, plus tc_hat_mpl), so the LI columns and the
 ## rolling_tc_plot() happy path can be exercised without the real fitter.
 make_mpl_stub <- function() {
   function(log_price, fh = 30, hold_out = 0, tc_init = NULL,
-           mode = "MPL", ...) {
+           mode = "MPL", mpl_cutoff = c(0.05, 0.1, 0.5), ...) {
     n_total <- length(log_price)
     n_cal <- n_total - hold_out
     tc_l <- if (!is.null(tc_init)) tc_init else (n_cal + floor(fh / 2))
+    half <- rev(seq_along(mpl_cutoff))
     list(
       fit = list(
         list(tc = tc_l, m = 0.5, omega = 8,
@@ -99,11 +103,10 @@ make_mpl_stub <- function() {
              B = -0.01, C1 = 0, C2 = 0, D = 1, value = 0)
       ),
       mpl_output = list(
-        LI = list(c(tc_l - 3, tc_l + 3),   # 5%
-                  c(tc_l - 2, tc_l + 2),    # 10%
-                  c(tc_l - 1, tc_l + 1)),   # 50%
+        LI = lapply(half, function(h) c(tc_l - h, tc_l + h)),
         tc_hat_mpl = tc_l
-      )
+      ),
+      fit_args = list(mode = mode, mpl_cutoff = mpl_cutoff)
     )
   }
 }
@@ -519,12 +522,45 @@ test_that("likelihood-interval columns are NA when the fit has no mpl_output", {
 
   li_cols <- c("LI5l", "LI5u", "LI10l", "LI10u", "LI50l", "LI50u",
                "tc_hat_mpl")
+  expect_true(all(li_cols %in% names(res$table)))
   for (col in li_cols) expect_true(all(is.na(res$table[[col]])))
+})
+
+test_that("the interval columns are named for their cutoffs, not their position", {
+  data <- make_bubble_data(n = 80)
+  local_mock_fit_lppls(make_mpl_stub())   # one interval per cutoff: +/-2, +/-1
+
+  hold_out <- 5
+  fh <- 20
+  res <- lppls_rolling(
+    log_price = data$log_p,
+    t1_seq = c(1, 10),
+    hold_out = hold_out,
+    fh = fh,
+    fit_args = list(num_searches = 1, mpl_cutoff = c(0.01, 0.2))
+  )
+  expect_identical(grep("^LI", names(res$table), value = TRUE),
+                   c("LI1l", "LI1u", "LI20l", "LI20u"))
+
+  ## Each pair holds its own cutoff's interval, on the global clock. By position
+  ## the 1% interval would have been called LI5 and the 20% one LI10.
+  off <- 9
+  tc_local <- (length(data$log_p) - 10 + 1) - hold_out + floor(fh / 2)
+  expect_equal(c(res$table$LI1l[2], res$table$LI1u[2]),
+               c(tc_local - 2, tc_local + 2) + off)
+  expect_equal(c(res$table$LI20l[2], res$table$LI20u[2]),
+               c(tc_local - 1, tc_local + 1) + off)
+
+  ## The plot names its bands for the same cutoffs.
+  p <- rolling_tc_plot(res)
+  expect_identical(p$scales$get_scales("colour")$breaks,
+                   c("LI_01", "LI_20", "MPLE", "PLE"))
 })
 
 # ----------------------------------------------------------------------------
 # print method
 # ----------------------------------------------------------------------------
+
 
 test_that("print.lppls_rolling returns its argument invisibly", {
   data <- make_bubble_data(n = 80)

@@ -30,7 +30,7 @@ test_that("the trace replay leaves the stream untouched too", {
   set.seed(7)
   expected <- stats::runif(1)
   set.seed(7)
-  small_fit("F2", tp = c(1, 0, 0))
+  small_fit("F2", tp = TRUE)
   expect_identical(stats::runif(1), expected)
 })
 

@@ -22,6 +22,9 @@
 #' The likelihood-interval columns (`LI5l` ... `tc_hat_mpl`) are populated only
 #' when the fit is run in `mode = "MPL"` (the default); under `mode = "F2"` they
 #' are `NA` but the point estimates and `sse_cal` (hence Lagrange) are identical.
+#' There is one pair of interval columns per cutoff in `fit_args$mpl_cutoff`,
+#' named for the cutoff as a percentage: `LI5l` and `LI5u` for 0.05, `LI1l` and
+#' `LI1u` for 0.01.
 #'
 #' @param log_price Numeric vector of log-prices for the full series.
 #' @param t1_seq Integer vector of rolling start indices (absolute positions into
@@ -44,8 +47,9 @@
 #'     \item{table}{Data frame with one row per window: `T1`, `n_cal`, the
 #'       absolute point estimates `tc`, `m`, `omega`, `A`, `B`, `C1`, `C2`, `D`,
 #'       the calibration-region residual sum of squares `sse_cal`, the absolute
-#'       likelihood-interval bounds `LI5l`/`LI5u`/`LI10l`/`LI10u`/`LI50l`/`LI50u`
-#'       and the absolute modified-profile-likelihood estimate `tc_hat_mpl`.}
+#'       likelihood-interval bounds, one pair per cutoff (with the default
+#'       cutoffs `LI5l`/`LI5u`/`LI10l`/`LI10u`/`LI50l`/`LI50u`), and the
+#'       absolute modified-profile-likelihood estimate `tc_hat_mpl`.}
 #'     \item{fits}{List of best-fit parameter lists (`fit[[1]]`) per window, in
 #'       window-local time.}
 #'     \item{t1_seq, T2, hold_out, fh, n_full}{The calibration setup.}
@@ -175,7 +179,7 @@ lppls_rolling <- function(
     t_cal <- seq_len(n_cal)
     sse_cal <- SSE(best, window_lp[t_cal], t_cal, mode = 0)
 
-    rows[[k]] <- data.frame(
+    row <- data.frame(
       T1         = T1,
       n_cal      = n_cal,
       tc         = unname(best$tc) + off,
@@ -186,15 +190,19 @@ lppls_rolling <- function(
       C1         = unname(best$C1),
       C2         = unname(best$C2),
       D          = unname(best$D),
-      sse_cal    = sse_cal,
-      LI5l       = li_bound(mpl, 1, 1, off),
-      LI5u       = li_bound(mpl, 1, 2, off),
-      LI10l      = li_bound(mpl, 2, 1, off),
-      LI10u      = li_bound(mpl, 2, 2, off),
-      LI50l      = li_bound(mpl, 3, 1, off),
-      LI50u      = li_bound(mpl, 3, 2, off),
-      tc_hat_mpl = if (is.null(mpl)) NA_real_ else unname(mpl$tc_hat_mpl) + off
+      sse_cal    = sse_cal
     )
+    ## Likelihood-interval columns are named for their cutoff as a percentage,
+    ## LI5l/LI5u for 0.05, from the cutoffs the fit records, as in
+    ## lppls_noise_sweep(). The default cutoffs give LI5l, LI5u, LI10l, LI10u,
+    ## LI50l, LI50u.
+    li_lab <- sprintf("%g", 100 * res_fit$fit_args$mpl_cutoff)
+    for (j in seq_along(li_lab)) {
+      row[[paste0("LI", li_lab[j], "l")]] <- li_bound(mpl, j, 1, off)
+      row[[paste0("LI", li_lab[j], "u")]] <- li_bound(mpl, j, 2, off)
+    }
+    row$tc_hat_mpl <- if (is.null(mpl)) NA_real_ else unname(mpl$tc_hat_mpl) + off
+    rows[[k]] <- row
   }
 
   structure(

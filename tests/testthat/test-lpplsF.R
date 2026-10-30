@@ -230,11 +230,11 @@ test_that("num_searches = 1 trace path replays the real BFGS step from (m_init, 
   fit <- suppressWarnings(fit_lppls(
     log_price = log_p, fh = 30, hold_out = 0, lower = lower, upper = upper,
     tc_init = tc_true, m_init = m_init, o_init = o_init,
-    num_searches = 1, mode = "F2", tp = c(1, 0, 0)))
+    num_searches = 1, mode = "F2", tp = TRUE))
 
   ## Pull the (m, omega) path out of the trace plot's GeomPath layer.
   ## Match the geom class exactly -- GeomContour inherits from GeomPath.
-  p    <- fit$trace_plot_mo
+  p    <- fit$trace_plot
   idx  <- which(vapply(p$layers, function(l) class(l$geom)[1] == "GeomPath",
                        logical(1)))[1]
   path <- p$layers[[idx]]$data
