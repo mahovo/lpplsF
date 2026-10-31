@@ -355,7 +355,7 @@ the indexes reported in "out of range" warnings.<br></p></dd>
 <dt><code>fit[[2]]</code></dt>
 <dd><p>If at least one fit passed the filter: Tibble of best fits for
 objective function <code>F2</code> for each value of <code>tc</code>. Columns are:
-<code>c(ID, value, tc, m, omega, A, B, C1, C2, damp)</code>. Sorted by
+<code>c(ID, value, tc, m, omega, A, B, C1, C2, D)</code>. Sorted by
 objective function value (best at top). For each value of <code>tc</code>
 the best fit is picked from that <code>tc</code>'s table in <code>fit[[4]]</code>.<br>
 If no fits passed the filter: Only unfiltered fits returned.</p></dd>
@@ -533,8 +533,9 @@ new restriction for the free variables. Physica A, 320, 539-547.
     <div class="section level2">
     <h2 id="see-also">See also<a class="anchor" aria-label="anchor" href="#see-also"></a></h2>
     <div class="dont-index"><p><code><a href="print.lppls_fit.html">print.lppls_fit()</a></code>, <code><a href="summary.lppls_fit.html">summary.lppls_fit()</a></code>, <code><a href="plot.lppls_fit.html">plot.lppls_fit()</a></code> and
-<code><a href="lppls_curvature.html">lppls_curvature()</a></code> for diagnosing the returned fit; <code><a href="lppls_rolling.html">lppls_rolling()</a></code> to
-recalibrate over a rolling window.</p></div>
+<code><a href="lppls_curvature.html">lppls_curvature()</a></code> for diagnosing the returned fit, and
+<code><a href="lppls_admissible.html">lppls_admissible()</a></code> for checking its estimates against the bounds;
+<code><a href="lppls_rolling.html">lppls_rolling()</a></code> to recalibrate over a rolling window.</p></div>
     </div>
 
     <div class="section level2">

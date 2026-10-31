@@ -51,6 +51,12 @@ reports on all of this, and the rest go further.
   Whether the estimate sits at a genuine interior minimum, which is what
   the modified profile likelihood assumes
 
+- [`lppls_admissible`](https://mahovo.github.io/lpplsF/reference/lppls_admissible.md):
+
+  Whether estimates meet the conditions on m, omega, B and the damping:
+  the estimate, every per-`tc` fit, or every window of a rolling
+  calibration
+
 - [`residual_qq_plot`](https://mahovo.github.io/lpplsF/reference/residual_qq_plot.md):
 
   Calibration residuals against a normal or fitted Student-t reference

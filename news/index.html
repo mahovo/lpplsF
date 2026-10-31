@@ -53,6 +53,8 @@
 <li>
 <code><a href="https://rdrr.io/r/base/print.html" class="external-link">print()</a></code>, <code><a href="https://rdrr.io/r/base/summary.html" class="external-link">summary()</a></code>, <code><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot()</a></code> and <code><a href="../reference/lppls_curvature.html">lppls_curvature()</a></code> report the diagnostics that decide whether a calibration can be trusted: boundary solutions, split optimisation basins, the <code>B</code> and damping filters, and where the modified profile likelihood is defined.</li>
 <li>
+<code><a href="../reference/lppls_admissible.html">lppls_admissible()</a></code> checks estimates against the conditions on <code>m</code>, <code>omega</code>, <code>B</code> and the damping: the estimate of a fit, every per-<code>tc</code> fit, or every window of a rolling calibration.</li>
+<li>
 <code><a href="../reference/lppls_rolling.html">lppls_rolling()</a></code>, <code><a href="../reference/lppls_lagrange.html">lppls_lagrange()</a></code> and <code><a href="../reference/lr_trend_test.html">lr_trend_test()</a></code> date the start of a bubble by Lagrange regularisation, with an autocorrelation-robust test of the trend the regularisation removes.</li>
 <li>
 <code><a href="../reference/lppls_noise_sweep.html">lppls_noise_sweep()</a></code> recalibrates a known signal across a range of noise levels, with any noise generator.</li>

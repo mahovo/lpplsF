@@ -5,7 +5,9 @@ Everything
 reports, plus the curvature check at the estimate when the fit carries
 (or is given) its input series. The returned object holds the
 diagnostics as values, so they can be used programmatically rather than
-parsed out of printed text.
+parsed out of printed text. Its `admissible` element holds the
+estimate's checks from
+[`lppls_admissible()`](https://mahovo.github.io/lpplsF/reference/lppls_admissible.md).
 
 ## Usage
 

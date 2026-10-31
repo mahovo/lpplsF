@@ -339,7 +339,11 @@ Line by line:
   for damping, \\D\\, below its floor. These are the two constraints
   [`fit_lppls()`](https://mahovo.github.io/lpplsF/reference/fit_lppls.md)
   reports internally, otherwise visible only as warnings while the fit
-  runs.
+  runs. If the reported estimate is itself out of range, a `!` line
+  below says so.
+  [`lppls_admissible()`](https://mahovo.github.io/lpplsF/reference/lppls_admissible.md)
+  runs the same checks on the estimate, on every per-\\t_c\\ fit, or on
+  every window of a rolling calibration.
 - **MPL.** How much of the \\t_c\\ grid the modified profile likelihood
   is defined on. It is `NA` wherever \\\det(X'X - H) \le 0\\, which at a
   constrained optimum carries no guarantee of sign.

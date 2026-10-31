@@ -336,7 +336,7 @@ A list containing:
 
       :   If at least one fit passed the filter: Tibble of best fits for
           objective function `F2` for each value of `tc`. Columns are:
-          `c(ID, value, tc, m, omega, A, B, C1, C2, damp)`. Sorted by
+          `c(ID, value, tc, m, omega, A, B, C1, C2, D)`. Sorted by
           objective function value (best at top). For each value of `tc`
           the best fit is picked from that `tc`'s table in `fit[[4]]`.  
           If no fits passed the filter: Only unfiltered fits returned.
@@ -554,7 +554,9 @@ crashes? A new restriction for the free variables. Physica A, 320,
 [`plot.lppls_fit()`](https://mahovo.github.io/lpplsF/reference/plot.lppls_fit.md)
 and
 [`lppls_curvature()`](https://mahovo.github.io/lpplsF/reference/lppls_curvature.md)
-for diagnosing the returned fit;
+for diagnosing the returned fit, and
+[`lppls_admissible()`](https://mahovo.github.io/lpplsF/reference/lppls_admissible.md)
+for checking its estimates against the bounds;
 [`lppls_rolling()`](https://mahovo.github.io/lpplsF/reference/lppls_rolling.md)
 to recalibrate over a rolling window.
 

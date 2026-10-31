@@ -18,6 +18,10 @@
   report the diagnostics that decide whether a calibration can be
   trusted: boundary solutions, split optimisation basins, the `B` and
   damping filters, and where the modified profile likelihood is defined.
+- [`lppls_admissible()`](https://mahovo.github.io/lpplsF/reference/lppls_admissible.md)
+  checks estimates against the conditions on `m`, `omega`, `B` and the
+  damping: the estimate of a fit, every per-`tc` fit, or every window of
+  a rolling calibration.
 - [`lppls_rolling()`](https://mahovo.github.io/lpplsF/reference/lppls_rolling.md),
   [`lppls_lagrange()`](https://mahovo.github.io/lpplsF/reference/lppls_lagrange.md)
   and

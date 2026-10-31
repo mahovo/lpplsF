@@ -18,6 +18,8 @@
   [`lpplsF-package`](https://mahovo.github.io/lpplsF/reference/lpplsF-package.md)
   : lpplsF: Log-Periodic Power Law Singularity Model for Financial
   Bubbles
+- [`lppls_admissible()`](https://mahovo.github.io/lpplsF/reference/lppls_admissible.md)
+  : Check LPPLS Estimates Against the Admissibility Conditions
 - [`lppls_curvature()`](https://mahovo.github.io/lpplsF/reference/lppls_curvature.md)
   : Curvature of the LPPLS objective at the estimate
 - [`lppls_lagrange()`](https://mahovo.github.io/lpplsF/reference/lppls_lagrange.md)

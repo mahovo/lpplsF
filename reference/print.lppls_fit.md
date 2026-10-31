@@ -3,10 +3,12 @@
 Prints the point estimate together with the checks that decide whether
 it can be trusted: whether the solution sits at an optimisation bound,
 how many of the individual fits reached the best basin found, how many
-were filtered on `B` or damping, and – in `"MPL"` mode – whether the
-modified profile likelihood is defined across the whole grid and whether
-its likelihood intervals are closed by the likelihood or merely by the
-edge of that grid.
+had `B` or the damping out of range, whether the estimate itself is in
+range (see
+[`lppls_admissible()`](https://mahovo.github.io/lpplsF/reference/lppls_admissible.md)),
+and – in `"MPL"` mode – whether the modified profile likelihood is
+defined across the whole grid and whether its likelihood intervals are
+closed by the likelihood or merely by the edge of that grid.
 
 ## Usage
 
