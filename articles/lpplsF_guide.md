@@ -453,7 +453,7 @@ would fall below
 
 ## Robustness to noise
 
-*Thesis Figures 18, 19 and 20.* How much noise can a calibration take
+*Thesis Figures 16, 17 and 18.* How much noise can a calibration take
 before its estimates stop meaning anything? That is a property of the
 model rather than of any particular series, so it is studied on a known
 signal: take a deterministic LPPLS path, add noise at a range of levels,
@@ -504,7 +504,7 @@ and the same pair under AR(1)-GARCH(1,1) noise, where M2 is M1 with
 the tables are shipped precomputed (`noise_*.rds`) and loaded here; see
 [Reproducibility and the cache](#reproducibility-and-the-cache).
 
-### Parameter estimates vs noise level — thesis Figure 18
+### Parameter estimates vs noise level — thesis Figure 16
 
 [`noise_param_plot()`](https://mahovo.github.io/lpplsF/reference/noise_param_plot.md)
 draws each estimate against the noise level, one panel per parameter.
@@ -543,7 +543,7 @@ draws the \\t_c\\ estimate and the MPLE with the nested
 likelihood-interval bands. Pass `true_tc` on a simulated signal and it
 marks the true value, here \\t_c = 2001\\.
 
-#### Gaussian noise: M1, then M2 at opposite phase — thesis Figure 19
+#### Gaussian noise: M1, then M2 at opposite phase — thesis Figure 17
 
 ``` r
 
@@ -563,7 +563,7 @@ likelihood-interval bands that widen with it, while the true value,
 2001, stays just below the lower edge of the innermost
 band.](lpplsF_guide_files/figure-html/noise-li-m2-gauss-1.png)
 
-#### AR(1)-GARCH(1,1) noise: M1, then M2 at opposite phase — thesis Figure 20
+#### AR(1)-GARCH(1,1) noise: M1, then M2 at opposite phase — thesis Figure 18
 
 ![The estimated critical time and its likelihood-interval bands against
 the noise standard deviation for M1 under AR(1)-GARCH(1,1) noise, with a
@@ -577,7 +577,7 @@ dashed line at the true value,
 
 ## Rolling windows and Lagrange regularization
 
-*Thesis Figures 23 to 25.* Lagrange regularization (Demos & Sornette,
+*Thesis Figures 21 to 23.* Lagrange regularization (Demos & Sornette,
 2019) tries to find the onset of a bubble by rolling the calibration
 start \\T_1\\ forward (fixed end \\T_2\\) and looking for the window
 where the normalized residual \\\chi^2\_{np}(T_1)\\ stops falling. The
@@ -678,7 +678,7 @@ T2_rg <- T1_rg + nc_rg - 1                        # its calibration end, T2
 f_rg  <- roll_rg$fits[[k_rg]]                     # the fit itself
 ```
 
-### The generated series and its fit — thesis Figure 23
+### The generated series and its fit — thesis Figure 21
 
 Blue the generated series, red the fitted LPPLS process up to \\\hat
 t_c\\, dashed markers at the calibration bounds and \\\hat t_c\\. The
@@ -707,7 +707,7 @@ Give
 [`fit_plot()`](https://mahovo.github.io/lpplsF/reference/fit_plot.md)
 both window bounds and it draws the curve only where the fit applies.
 
-### Rolling-\\T_1\\ estimates — thesis Figure 24
+### Rolling-\\T_1\\ estimates — thesis Figure 22
 
 How the \\t_c\\ estimate and the six parameters move as \\T_1\\ rolls
 across the onset. For \\T_1\\ well below 600 the window still contains
@@ -738,7 +738,7 @@ settle: A near 8, B just below 0, C1 and C2 close to 0, m rising to
 about 0.6, and omega rising to about 8 by T1 =
 600.](lpplsF_guide_files/figure-html/regime-gauss-params-1.png)
 
-### Lagrange regularization — thesis Figure 25
+### Lagrange regularization — thesis Figure 23
 
 \\\chi^2\_{np}(T_1)\\ with the OLS bias trend (red), then the
 regularized objective \\\chi^2\_{\lambda^\*}(T_1)\\ with the optimal
@@ -790,7 +790,7 @@ tails.](lpplsF_guide_files/figure-html/regime-gauss-res-1.png)
 
 ## Empirical example: the S&P 500
 
-*Thesis Figures 27 to 32.* The package ships the S&P 500 series as the
+*Thesis Figures 25 to 30.* The package ships the S&P 500 series as the
 dataset `spx` (see
 [`?spx`](https://mahovo.github.io/lpplsF/reference/spx.md)), covering
 exactly the calibrated window, 2009-05-18 to 2020-12-31. We fit on
@@ -893,7 +893,7 @@ and LI(0.10) each **bridge grid points** that are not above their
 cutoff, and every \\t_c\\ inside an interval is a **good-basin fit**, so
 the intervals trace where the search succeeded rather than the curvature
 of the likelihood. [The modified profile
-likelihood](#modified-profile-likelihood-thesis-figure-28) below takes
+likelihood](#modified-profile-likelihood-thesis-figure-26) below takes
 this up.
 
 None of this is visible in the point estimate, which looks entirely
@@ -912,7 +912,7 @@ The master’s thesis for which this package was written takes up exactly
 this question: When an LPPLS calibration is worth believing, and what to
 do when it is not. The S&P 500 case above is its Chapter 9.
 
-### Fit plot — thesis Figure 27
+### Fit plot — thesis Figure 25
 
 Because the calibration was given `dates`, the attached `$fit_plot` is
 already drawn on a calendar axis. Pass `dates` to
@@ -949,7 +949,7 @@ fit_plot(spx_fit$fit[[1]], seq_len(nrow(df_spx)), df_spx$logpris,
          T2 = n_cal_spx, dates = df_spx$Date, style = "empirical")
 ```
 
-### Modified profile likelihood — thesis Figure 28
+### Modified profile likelihood — thesis Figure 26
 
 The MPLE coincides with the PLE, at 2020-03-03. The `MPL:` line of the
 printout above gives that date next to the index, and each likelihood
@@ -1258,7 +1258,7 @@ good-basin fits. `LI(0.50)` is contiguous. This is the same conclusion
 the relative-scale plot above shows visually, arrived at from the
 numbers.
 
-### Fit diagnostics — thesis Figure 32
+### Fit diagnostics — thesis Figure 30
 
 The BFGS path slides to the \\(m, \omega)\\ boundary corner; the
 per-\\t_c\\ parameter panel shows \\m\\ pinned at 0.9 with jumps where
@@ -1288,7 +1288,7 @@ estimate. m sits at its upper bound of 0.9 for every candidate, and the
 other parameters jump between two branches, one for each optimisation
 basin.](lpplsF_guide_files/figure-html/spx-param-1.png)
 
-### Residual QQ diagnostics — thesis Figure 29
+### Residual QQ diagnostics — thesis Figure 27
 
 Residuals of the SPX calibration (\\t \< \hat t_c\\) against a normal
 and a fitted Student-t reference, both via
@@ -1315,7 +1315,7 @@ follow the line through the middle but flatten at both ends, above it in
 the lower tail and below it in the upper: lighter tails than the fitted
 t.](lpplsF_guide_files/figure-html/spx-qq-t-1.png)
 
-### Lagrange regularization on the S&P 500 — thesis Figure 31
+### Lagrange regularization on the S&P 500 — thesis Figure 29
 
 Rolling \\T_1 = 1 \to 501\\ step 25 (21 windows), \\T_2 = 2428\\ fixed;
 shipped precomputed as `lagrange_rolling_spx.rds` (21-window MPL fit).
