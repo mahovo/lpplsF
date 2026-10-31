@@ -213,7 +213,7 @@
 #'             \item{`fit[[2]]`}{
 #'               If at least one fit passed the filter: Tibble of best fits for
 #'               objective function `F2` for each value of `tc`. Columns are:
-#'               `c(ID, value, tc, m, omega, A, B, C1, C2, damp)`. Sorted by
+#'               `c(ID, value, tc, m, omega, A, B, C1, C2, D)`. Sorted by
 #'               objective function value (best at top). For each value of `tc`
 #'               the best fit is picked from that `tc`'s table in `fit[[4]]`.\cr
 #'               If no fits passed the filter: Only unfiltered fits returned.
@@ -376,8 +376,9 @@
 #' plot(fit, "mpl_relative")  # drawn on demand
 #'
 #' @seealso [print.lppls_fit()], [summary.lppls_fit()], [plot.lppls_fit()] and
-#'   [lppls_curvature()] for diagnosing the returned fit; [lppls_rolling()] to
-#'   recalibrate over a rolling window.
+#'   [lppls_curvature()] for diagnosing the returned fit, and
+#'   [lppls_admissible()] for checking its estimates against the bounds;
+#'   [lppls_rolling()] to recalibrate over a rolling window.
 #'
 #' @importFrom dplyr arrange
 #' @importFrom tibble tibble
@@ -1096,6 +1097,16 @@ fit_lppls <- function(
     NULL
   }
 
+  ## Is the estimate itself in range? The search is bounded in m and omega, but
+  ## B and D are only checked on the result of each search, and in modes "F2"
+  ## and "MPL" the estimate is re-derived at the refined tc, so it can fail them.
+  if (bounds_known) {
+    d$lower <- a$lower
+    d$upper <- a$upper
+    chk <- .admissible(est, a$lower, a$upper)
+    d$admissible <- unlist(chk[1L, c("m_ok", "omega_ok", "B_ok", "D_ok", "admissible")])
+  }
+
   ## Optimisation basins. Distance from the best SSE will not do on its own: In
   ## "F2"/"MPL" the conditional SSE legitimately rises away from the optimal tc,
   ## so a perfectly good profile also has fits well above the minimum. What marks
@@ -1200,8 +1211,9 @@ fit_lppls <- function(
 #'
 #' Prints the point estimate together with the checks that decide whether it can
 #' be trusted: whether the solution sits at an optimisation bound, how many of the
-#' individual fits reached the best basin found, how many were filtered on `B` or
-#' damping, and -- in `"MPL"` mode -- whether the modified profile likelihood is
+#' individual fits reached the best basin found, how many had `B` or the damping
+#' out of range, whether the estimate itself is in range (see
+#' [lppls_admissible()]), and -- in `"MPL"` mode -- whether the modified profile likelihood is
 #' defined across the whole grid and whether its likelihood intervals are closed
 #' by the likelihood or merely by the edge of that grid.
 #'
@@ -1381,6 +1393,20 @@ print.lppls_fit <- function(x, ...) {
     flags <- c(flags, sprintf(
       "%s pinned at an optimisation bound - a boundary solution, so the modified profile likelihood and its intervals are unreliable",
       paste(d$pinned, collapse = " and ")))
+  }
+  ok <- d$admissible
+  if (!is.null(ok) && !isTRUE(ok[["admissible"]])) {
+    bad <- c(
+      if (!ok[["m_ok"]]) {
+        sprintf("m = %.4g (needs %g <= m <= %g)", e$m, d$lower[1], d$upper[1])
+      },
+      if (!ok[["omega_ok"]]) {
+        sprintf("omega = %.4g (needs %g <= omega <= %g)", e$omega, d$lower[2], d$upper[2])
+      },
+      if (!ok[["B_ok"]]) sprintf("B = %.4g (needs B < %g)", e$B, d$upper[3]),
+      if (!ok[["D_ok"]]) sprintf("D = %.3f (needs D >= %g)", e$D, d$lower[4])
+    )
+    flags <- c(flags, paste("the estimate is out of range:", paste(bad, collapse = ", ")))
   }
   if (isTRUE(d$split)) {
     flags <- c(flags, sprintf(
@@ -1679,7 +1705,8 @@ print.lppls_curvature <- function(x, ...) {
 #' Everything [print.lppls_fit()] reports, plus the curvature check at the
 #' estimate when the fit carries (or is given) its input series. The returned
 #' object holds the diagnostics as values, so they can be used programmatically
-#' rather than parsed out of printed text.
+#' rather than parsed out of printed text. Its `admissible` element holds the
+#' estimate's checks from [lppls_admissible()].
 #'
 #' @param object An object of class `"lppls_fit"` from [fit_lppls()].
 #' @param log_price Optional numeric vector passed to [lppls_curvature()], for

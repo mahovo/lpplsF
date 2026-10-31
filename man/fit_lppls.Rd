@@ -252,7 +252,7 @@ List of best fit coefficients optimized wrt \code{m} and \code{omega}.
 \item{\code{fit[[2]]}}{
 If at least one fit passed the filter: Tibble of best fits for
 objective function \code{F2} for each value of \code{tc}. Columns are:
-\code{c(ID, value, tc, m, omega, A, B, C1, C2, damp)}. Sorted by
+\code{c(ID, value, tc, m, omega, A, B, C1, C2, D)}. Sorted by
 objective function value (best at top). For each value of \code{tc}
 the best fit is picked from that \code{tc}'s table in \code{fit[[4]]}.\cr
 If no fits passed the filter: Only unfiltered fits returned.
@@ -423,6 +423,7 @@ new restriction for the free variables. Physica A, 320, 539-547.
 }
 \seealso{
 \code{\link[=print.lppls_fit]{print.lppls_fit()}}, \code{\link[=summary.lppls_fit]{summary.lppls_fit()}}, \code{\link[=plot.lppls_fit]{plot.lppls_fit()}} and
-\code{\link[=lppls_curvature]{lppls_curvature()}} for diagnosing the returned fit; \code{\link[=lppls_rolling]{lppls_rolling()}} to
-recalibrate over a rolling window.
+\code{\link[=lppls_curvature]{lppls_curvature()}} for diagnosing the returned fit, and
+\code{\link[=lppls_admissible]{lppls_admissible()}} for checking its estimates against the bounds;
+\code{\link[=lppls_rolling]{lppls_rolling()}} to recalibrate over a rolling window.
 }

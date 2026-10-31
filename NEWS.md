@@ -12,6 +12,9 @@
   diagnostics that decide whether a calibration can be trusted: boundary
   solutions, split optimisation basins, the `B` and damping filters, and where
   the modified profile likelihood is defined.
+* `lppls_admissible()` checks estimates against the conditions on `m`, `omega`,
+  `B` and the damping: the estimate of a fit, every per-`tc` fit, or every window
+  of a rolling calibration.
 * `lppls_rolling()`, `lppls_lagrange()` and `lr_trend_test()` date the start of
   a bubble by Lagrange regularisation, with an autocorrelation-robust test of
   the trend the regularisation removes.

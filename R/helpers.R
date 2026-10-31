@@ -359,41 +359,6 @@ create_sse_calculator <- function(method = c("crossprod", "qr", "chol",
 }
 
 
-#' Validate LPPLS Parameters
-#'
-#' Checks if estimated parameters fall within acceptable ranges.
-#'
-#' @param params Named list with elements: tc, m, omega, A, B, C1, C2, D
-#' @param lower Numeric vector of lower bounds for c(m, omega, B, D)
-#' @param upper Numeric vector of upper bounds for c(m, omega, B, D)
-#'
-#' @return List with elements:
-#'   \itemize{
-#'     \item valid: logical, TRUE if all parameters in range
-#'     \item B_valid: logical, TRUE if B < upper[3]
-#'     \item D_valid: logical, TRUE if D >= lower[4]
-#'     \item m_valid: logical, TRUE if lower[1] <= m <= upper[1]
-#'     \item omega_valid: logical, TRUE if lower[2] <= omega <= upper[2]
-#'   }
-#'
-#' @keywords internal
-#' @noRd
-validate_params <- function(params, lower, upper) {
-  B_valid <- params$B < upper[3]
-  D_valid <- params$D >= lower[4]
-  m_valid <- params$m >= lower[1] && params$m <= upper[1]
-  omega_valid <- params$omega >= lower[2] && params$omega <= upper[2]
-
-  list(
-    valid = B_valid && D_valid && m_valid && omega_valid,
-    B_valid = B_valid,
-    D_valid = D_valid,
-    m_valid = m_valid,
-    omega_valid = omega_valid
-  )
-}
-
-
 ## Calendar dates for positions on the calibration's time index ----------------
 ##
 ## `ids` are positions on the 1..n index the calibration runs on. Two things make

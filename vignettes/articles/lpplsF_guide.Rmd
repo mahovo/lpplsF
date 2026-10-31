@@ -376,6 +376,9 @@ Line by line:
 * **Filters.** How many candidate fits were rejected for $B \ge 0$ or for
   damping, $D$, below its floor. These are the two constraints `fit_lppls()`
   reports internally, otherwise visible only as warnings while the fit runs.
+  If the reported estimate is itself out of range, a `!` line below says so.
+  `lppls_admissible()` runs the same checks on the estimate, on every per-$t_c$
+  fit, or on every window of a rolling calibration.
 * **MPL.** How much of the $t_c$ grid the modified profile likelihood is defined
   on. It is `NA` wherever $\det(X'X - H) \le 0$, which at a constrained optimum
   carries no guarantee of sign.

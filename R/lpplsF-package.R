@@ -31,6 +31,9 @@
 #'     good and an inferior cluster}
 #'   \item{\code{\link{lppls_curvature}}}{Whether the estimate sits at a genuine
 #'     interior minimum, which is what the modified profile likelihood assumes}
+#'   \item{\code{\link{lppls_admissible}}}{Whether estimates meet the conditions
+#'     on m, omega, B and the damping: the estimate, every per-`tc` fit, or every
+#'     window of a rolling calibration}
 #'   \item{\code{\link{residual_qq_plot}}}{Calibration residuals against a normal
 #'     or fitted Student-t reference}
 #' }

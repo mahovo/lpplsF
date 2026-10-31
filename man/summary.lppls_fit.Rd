@@ -21,7 +21,8 @@ An object of class \code{"summary.lppls_fit"}.
 Everything \code{\link[=print.lppls_fit]{print.lppls_fit()}} reports, plus the curvature check at the
 estimate when the fit carries (or is given) its input series. The returned
 object holds the diagnostics as values, so they can be used programmatically
-rather than parsed out of printed text.
+rather than parsed out of printed text. Its \code{admissible} element holds the
+estimate's checks from \code{\link[=lppls_admissible]{lppls_admissible()}}.
 }
 \seealso{
 \code{\link[=fit_lppls]{fit_lppls()}}, \code{\link[=lppls_curvature]{lppls_curvature()}}

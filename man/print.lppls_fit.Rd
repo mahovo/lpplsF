@@ -17,8 +17,9 @@
 \description{
 Prints the point estimate together with the checks that decide whether it can
 be trusted: whether the solution sits at an optimisation bound, how many of the
-individual fits reached the best basin found, how many were filtered on \code{B} or
-damping, and -- in \code{"MPL"} mode -- whether the modified profile likelihood is
+individual fits reached the best basin found, how many had \code{B} or the damping
+out of range, whether the estimate itself is in range (see
+\code{\link[=lppls_admissible]{lppls_admissible()}}), and -- in \code{"MPL"} mode -- whether the modified profile likelihood is
 defined across the whole grid and whether its likelihood intervals are closed
 by the likelihood or merely by the edge of that grid.
 }
