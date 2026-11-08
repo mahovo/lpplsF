@@ -1286,7 +1286,7 @@ print.lppls_fit <- function(x, ...) {
 
 #' Format a diagnostic summary
 #'
-#' Shared by [print.lppls_fit()] and [print.summary.lppls_fit()]; the latter
+#' Shared by `print.lppls_fit()` and `print.summary.lppls_fit()`; the latter
 #' passes a curvature report to append.
 #'
 #' @keywords internal

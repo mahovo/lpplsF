@@ -711,7 +711,7 @@ applies.
 How the $t_c$ estimate and the six parameters move as $T_1$ rolls across the
 onset. For $T_1$ well below 600 the window still contains ranging data and the
 estimates wander; as $T_1$ approaches and passes 600 the window becomes
-predominantly, then purely, LPPL and $\hat t_c$ settles near the true 2001.
+predominantly, then purely, LPPL and $\hat t_c$ settles around 1990.
 
 ```{r regime-gauss-tc, fig.width=6, fig.height=4}
 #| fig.alt: >

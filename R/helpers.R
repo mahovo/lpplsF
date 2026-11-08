@@ -1,8 +1,5 @@
-#' @keywords internal
-#' @noRd
-#'
-#' Helper functions for LPPLS model fitting.
-#' These are internal functions not exported to users.
+## Helper functions for LPPLS model fitting.
+## These are internal functions not exported to users.
 
 # Helper function: f(t, tc, m) = (tc - t)^m
 lppls_f <- function(t, tc, m) {
@@ -297,7 +294,7 @@ create_beta_calculator <- function(method = c("crossprod", "qr", "chol",
 #' `"symengine"` deliberately keeps the two-pass form, so that the thesis
 #' calibration is reproduced exactly rather than merely to rounding.
 #'
-#' @param method Solver, as in [create_beta_calculator()].
+#' @param method Solver, as in `create_beta_calculator()`.
 #' @param beta_calculator Optional pre-built calculator for `method`, reused so
 #'   the caller does not build two.
 #'

@@ -37,10 +37,7 @@
 
 
 
-#' Modified Profile Likelihood Functions and Plotting
-#'
-#' @keywords internal
-#' @noRd
+## Modified Profile Likelihood Functions and Plotting
 
 #' Compute Modified Profile Likelihood
 #'
@@ -56,7 +53,7 @@
 #'   boundary solution (m or omega pinned at a bound) for which the MPL is
 #'   unreliable.
 #' @param fb Logical, whether to print feedback.
-#' @param beta_calculator Function from [create_beta_calculator()]. Passed in
+#' @param beta_calculator Function from `create_beta_calculator()`. Passed in
 #'   rather than built here so the solver choice is honoured and the calculator
 #'   is constructed once per fit instead of once per candidate `tc`.
 #'
