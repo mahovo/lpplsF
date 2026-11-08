@@ -1,0 +1,312 @@
+---
+title: "Rolling-Window LPPLS and Lagrange Regularization"
+subtitle: "A guided demo of the `lpplsF` LR toolchain"
+author: "lpplsF"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+    number_sections: true
+params:
+  recompute: false   # FALSE (default) = load pre-computed lr_demo_data/ (fast; the vignette path)
+                     # TRUE            = re-run the heavy fits and refresh lr_demo_data/ (the demo path)
+  B_boot: 99         # bootstrap replicates for lr_trend_test() when recompute = TRUE
+---
+
+```{r setup, include=FALSE}
+## ── ONE SWITCH (set in the YAML header) ──────────────────────────────────────
+##   params$recompute = FALSE : load pre-computed results from lr_demo_data/  (fast; default)
+##                    = TRUE  : re-run lppls_rolling() / lr_trend_test() and refresh lr_demo_data/
+## The expensive chunks are gated `eval = RECOMPUTE`; a hidden loader (gated
+## `eval = !RECOMPUTE`) reads the cached objects back under the SAME names, so every
+## display chunk below is identical in both modes and the knitted output matches.
+RECOMPUTE <- isTRUE(params$recompute)
+B_BOOT    <- params$B_boot
+D         <- "lr_demo_data"
+
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+                      fig.width = 8, fig.height = 4.4, dpi = 110)
+
+## Locate and load the package from source, wherever this file is knit from.
+pkg_root <- "."
+for (up in c(".", "..", file.path("..", ".."), file.path("..", "..", ".."))) {
+  if (file.exists(file.path(up, "DESCRIPTION"))) { pkg_root <- up; break }
+}
+suppressMessages(pkgload::load_all(pkg_root, quiet = TRUE))
+suppressMessages(library(ggplot2))
+
+## The heavy Suggests are needed ONLY to recompute lr_trend_test(); the vignette
+## (recompute = FALSE) renders without them.
+if (RECOMPUTE) suppressMessages({
+  library(parallel); library(sandwich); library(tsgarch); library(xts)
+})
+n_cores <- if (RECOMPUTE) max(1L, parallel::detectCores() - 2L) else 1L
+```
+
+This document demonstrates the rolling-window / Lagrange-regularization toolchain
+in **`lpplsF`** end to end:
+
+| Step | Function(s) |
+|---|---|
+| 1. Roll the LPPLS calibration over the start time $T_1$ | `lppls_rolling()` |
+| 2. Inspect the window estimates | `rolling_tc_plot()`, `rolling_param_plot()` |
+| 3. Pick the optimal window by Lagrange regularization | `lppls_lagrange()`, `chi_sq_np_plot()`, `chi_sq_lambda_plot()` |
+| 4. Ask whether the regularized trend is *real* or a noise artifact | `lr_trend_test()` |
+
+The idea behind Lagrange regularization (Demos & Sornette, 2019) is that a
+genuine bubble has a well-defined beginning: as the calibration start $T_1$
+sweeps forward, the normalized fit residual $\chi^2_{np}(T_1)$ should *fall*
+once the window is dominated by the log-periodic signal. Regularization removes
+the mechanical "more data ⇒ larger residual" trend and reports the window
+$T_1^*$ that best balances fit against sample size. `lr_trend_test()` then asks
+the harder question — is that downward trend distinguishable from what pure
+estimation noise produces on its own?
+
+> **Reproducibility.** The expensive fitting is cached under `lr_demo_data/`. Knit as-is
+> (`recompute = FALSE`) to reload it (seconds); knit with
+> `rmarkdown::render("lr_demo.Rmd", params = list(recompute = TRUE))` to re-run
+> everything (a few minutes, and it needs the suggested packages `tsgarch`,
+> `xts`, `sandwich`, `parallel`).
+
+# Two synthetic series
+
+We build two log-price series that a rolling calibration should treat very
+differently. Both are 500 points long with the same Gaussian noise realization
+($\sigma = 0.05$); the only difference is the presence of a regime change.
+
+* **Regime switch** — a flat "ranging" market for the first `onset = 250`
+  observations that then switches into an LPPLS bubble. There is a genuine start
+  date to find.
+* **Single regime** — a pure LPPLS bubble the whole way through. There is no
+  special start date; the log-periodic signal is present from $t = 1$.
+
+```{r data}
+set.seed(3630)
+N <- 500; onset <- 250; sigma <- 0.05
+
+## The underlying LPPLS bubble (critical time just past the sample end)
+bubble <- eval_lppls(seq_len(N), A = 8, B = -0.025, C1 = 0.0015, C2 = 0.001,
+                     tc = N + 1, m = 0.6, omega = 8)
+
+## Regime switch: flat prefix at the onset level, then the bubble
+set.seed(3630)
+lp_regime <- c(rep(bubble[onset], onset), bubble[(onset + 1):N]) + rnorm(N) * sigma
+
+## Single regime: the bubble throughout (same noise draw)
+set.seed(3630)
+lp_single <- bubble + rnorm(N) * sigma
+```
+
+```{r plot-data, echo=FALSE, fig.height=3.2}
+df <- rbind(
+  data.frame(t = seq_len(N), logp = lp_regime, series = "regime switch (flat -> LPPLS)"),
+  data.frame(t = seq_len(N), logp = lp_single, series = "single regime (LPPLS + noise)")
+)
+ggplot(df, aes(t, logp)) +
+  geom_line(linewidth = 0.3) +
+  geom_vline(xintercept = onset, linetype = "dashed", colour = "grey40") +
+  facet_wrap(~series) +
+  labs(x = "time index", y = "log price") +
+  theme_minimal()
+```
+
+The dashed line marks the true onset (`t = 250`). We walk through the toolchain
+on the **regime-switch** series, then use both series to contrast `lr_trend_test()`.
+
+# Rolling-window calibration — `lppls_rolling()`
+
+`lppls_rolling()` is the expensive primitive: it calibrates one LPPLS model per
+window, all sharing a common calibration end $T_2$ while the start $T_1$
+rolls over `t1_seq`. The last `hold_out` points are reserved from the end, which
+fixes $T_2$. We roll in `mode = "MPL"` so the modified-profile-likelihood
+intervals for $t_c$ are captured too.
+
+```{r roll-config}
+t1_seq   <- seq(1, 250, by = 30)          # 9 rolling start times
+fit_args <- list(lower = c(0.1, 6, -0.03, 0.8),
+                 upper = c(0.9, 13, -1e-14, 1e6),
+                 m_init = 0.2, o_init = 12,
+                 num_searches = 1, mode = "MPL")
+```
+
+```{r compute-roll, eval=RECOMPUTE}
+roll_regime <- lppls_rolling(lp_regime, t1_seq = t1_seq, hold_out = 50, fh = 18,
+                             fit_args = fit_args)
+roll_single <- lppls_rolling(lp_single, t1_seq = t1_seq, hold_out = 50, fh = 18,
+                             fit_args = fit_args)
+```
+
+```{r save-roll, eval=RECOMPUTE, echo=FALSE}
+dir.create(D, showWarnings = FALSE)
+saveRDS(roll_regime, file.path(D, "roll_regime.rds"))
+saveRDS(roll_single, file.path(D, "roll_single.rds"))
+```
+
+```{r load-roll, eval=!RECOMPUTE, echo=FALSE}
+roll_regime <- readRDS(file.path(D, "roll_regime.rds"))
+roll_single <- readRDS(file.path(D, "roll_single.rds"))
+```
+
+The returned object prints a compact summary:
+
+```{r roll-print}
+roll_regime
+```
+
+`rolling_tc_plot()` shows the $t_c$ point estimate (profile likelihood in black,
+modified profile likelihood in cyan) with its 5 % / 10 % / 50 % likelihood-interval
+bands, as a function of $T_1$. As the window starts to include the post-onset
+bubble, the critical-time estimate settles down:
+
+```{r roll-tc, fig.height=4.2}
+rolling_tc_plot(roll_regime)
+```
+
+`rolling_param_plot()` shows the six LPPLS parameters
+$(m, \omega, A, B, C_1, C_2)$ across the same windows:
+
+```{r roll-param, fig.height=6}
+rolling_param_plot(roll_regime)
+```
+
+# Lagrange regularization — `lppls_lagrange()`
+
+`lppls_lagrange()` is cheap post-processing on the rolling object: it normalizes
+each window's residual sum of squares to $\chi^2_{np}(T_1)$, fits the linear
+bias trend $\chi^2_{np} = \beta_0 + \beta_1 T_1$, and reports the regularized
+minimizer $T_1^*$. We use `p = 0`, the "p-correction omitted" form of Demos &
+Sornette (2019).
+
+```{r lagrange}
+lag_regime <- lppls_lagrange(roll_regime, p = 0)
+lag_regime
+```
+
+`chi_sq_np_plot()` shows $\chi^2_{np}(T_1)$ with the fitted bias trend (red).
+A genuine bubble onset produces a downward slope — $\lambda^* = -\beta_1 > 0$:
+
+```{r lag-np, fig.height=4}
+chi_sq_np_plot(lag_regime)
+```
+
+`chi_sq_lambda_plot()` shows the regularized objective
+$\chi^2_{\lambda^*}(T_1) = \chi^2_{np}(T_1) - \lambda^*(T_2 - T_1)$, with a
+green line at the optimal start $T_1^*$:
+
+```{r lag-lambda, fig.height=4}
+chi_sq_lambda_plot(lag_regime)
+```
+
+# Is the trend real? — `lr_trend_test()`
+
+A downward $\chi^2_{np}$ slope is only meaningful if it is larger than what
+estimation noise alone would generate. This is subtle because adjacent rolling
+windows overlap heavily, so $\chi^2_{np}(T_1)$ is strongly autocorrelated and a
+naive ordinary-least-squares $p$-value is badly oversized. `lr_trend_test()`
+reports three tests:
+
+* **OLS** $p$ — the naive test (invalid here; shown for reference);
+* **HAC** $p$ — Newey–West, heteroskedasticity- and autocorrelation-consistent;
+* **parametric AR(1)–GARCH(1,1) bootstrap** $p$ — the appropriate test. It fits
+  an AR(1)–GARCH(1,1) model to the residuals of the full-window fit, simulates
+  fresh noise paths on top of that single fitted LPPLS curve, re-rolls the whole
+  calibration on each, and builds the null distribution of $\beta_1$. A validity
+  guard flags an IGARCH fit ($\alpha + \beta \ge 1$): if the noise model is
+  misspecified the bootstrap is skipped and its $p$-value is `NA`.
+
+We run it on **both** series (the bootstrap re-rolls `B` times, so this is the
+expensive step):
+
+```{r compute-lr, eval=RECOMPUTE}
+lr_regime <- lr_trend_test(roll_regime, log_price = lp_regime,
+                           B = B_BOOT, cores = n_cores, seed = 1)
+lr_single <- lr_trend_test(roll_single, log_price = lp_single,
+                           B = B_BOOT, cores = n_cores, seed = 1)
+```
+
+```{r save-lr, eval=RECOMPUTE, echo=FALSE}
+saveRDS(lr_regime, file.path(D, "lr_regime.rds"))
+saveRDS(lr_single, file.path(D, "lr_single.rds"))
+```
+
+```{r load-lr, eval=!RECOMPUTE, echo=FALSE}
+lr_regime <- readRDS(file.path(D, "lr_regime.rds"))
+lr_single <- readRDS(file.path(D, "lr_single.rds"))
+```
+
+**Regime switch** — a genuine onset:
+
+```{r lr-regime}
+lr_regime
+```
+
+**Single regime** — a bubble but no special start date:
+
+```{r lr-single}
+lr_single
+```
+
+Side by side:
+
+```{r lr-table, echo=FALSE}
+mk_row <- function(lr, name) {
+  data.frame(
+    Series        = name,
+    `lambda*`     = signif(lr$lambda, 3),
+    `OLS p`       = signif(lr$p_ols, 3),
+    `HAC p`       = signif(lr$p_hac, 3),
+    `Bootstrap p` = signif(lr$p_boot, 3),
+    `alpha+beta`  = signif(lr$persist, 3),
+    check.names   = FALSE
+  )
+}
+knitr::kable(
+  rbind(mk_row(lr_regime, "regime switch"),
+        mk_row(lr_single, "single regime")),
+  caption = "Three tests of the chi-squared_np bias trend for each series."
+)
+```
+
+The bootstrap null distribution of the slope $\beta_1$, with the observed slope
+in red. For the regime switch the observed slope sits far out in the tail
+(significant); for the single regime it sits inside the bulk (a noise artifact):
+
+```{r lr-hist, echo=FALSE, fig.height=3.6}
+hn <- rbind(
+  data.frame(beta1 = lr_regime$null, series = "regime switch"),
+  data.frame(beta1 = lr_single$null, series = "single regime")
+)
+obs <- data.frame(series = c("regime switch", "single regime"),
+                  beta1  = c(lr_regime$beta1, lr_single$beta1))
+ggplot(hn, aes(beta1)) +
+  geom_histogram(bins = 25, fill = "grey70", colour = "white") +
+  geom_vline(data = obs, aes(xintercept = beta1), colour = "red", linewidth = 0.8) +
+  facet_wrap(~series, scales = "free") +
+  labs(x = expression(beta[1]~"(null distribution; red = observed)"), y = "count") +
+  theme_minimal()
+```
+
+## Reading the result
+
+The naive **OLS** $p$-value and even the **HAC** $p$-value declare the trend
+"significant" for *both* series — including the single-regime series, where by
+construction there is nothing to find. They are fooled by the autocorrelation of
+overlapping windows. Only the **parametric bootstrap** separates the two cases:
+it confirms the trend for the genuine regime switch and correctly reports the
+single-regime slope as indistinguishable from noise.
+
+This is the whole point of `lr_trend_test()`: a decreasing $\chi^2_{np}$ trend —
+and hence a confident-looking $T_1^*$ from `lppls_lagrange()` — is not by itself
+evidence of a datable bubble onset. For a systematic treatment (Monte-Carlo
+fragility of $\lambda^*$, onset localization, and the S&P 500 example) see
+`misc/lr_exploration/lagrange_inference_report.Rmd`.
+
+> The bootstrap uses only `r params$B_boot` replicates here (kept small for the
+> demo); a publication-grade test would use several hundred to a few thousand,
+> with `cores > 1` to parallelize the re-rolls.
+
+```{r session, echo=FALSE}
+sessionInfo()
+```
