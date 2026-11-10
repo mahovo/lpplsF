@@ -12,6 +12,8 @@
 
 2. **Filimonov, Demos & Sornette (2017)**: Modified profile likelihood inference and interval forecast of the burst of financial bubbles. *Quantitative Finance*.
 
+[![lpplsF](assets/screenshot.png)](https://mahovo.github.io/lpplsF/)
+
 ## Documentation
 
 The package website, <https://mahovo.github.io/lpplsF/>, has the reference for every function, the package overview as its [Get started](https://mahovo.github.io/lpplsF/articles/lpplsF.html) page, and a [guided tour](https://mahovo.github.io/lpplsF/articles/lpplsF_guide.html) that works through every function on simulated and real data, with interactive SSE landscapes.
