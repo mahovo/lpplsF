@@ -8,7 +8,7 @@
 ## Citation
 
 Source:
-[`DESCRIPTION`](https://github.com/mahovo/lpplsF/blob/dev/DESCRIPTION)
+[`DESCRIPTION`](https://github.com/mahovo/lpplsF/blob/main/DESCRIPTION)
 
 Vognsen M (2026). *lpplsF: Log-Periodic Power Law Singularity Model for
 Financial Bubbles*. R package version 0.1.0,
