@@ -13,6 +13,8 @@ for detecting and analysing financial bubbles. The package is based on:
     inference and interval forecast of the burst of financial bubbles.
     *Quantitative Finance*.
 
+[![lpplsF](assets/screenshot.png)](https://mahovo.github.io/lpplsF/)
+
 ## Documentation
 
 The package website, <https://mahovo.github.io/lpplsF/>, has the
